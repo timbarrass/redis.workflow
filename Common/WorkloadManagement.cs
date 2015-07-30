@@ -17,9 +17,6 @@ namespace Redis.Workflow.Common
 
             var sub = mux.GetSubscriber();
 
-            Console.WriteLine("Clearing backlog");
-            while (ProcessNextTask() != null) { }
-
             sub.Subscribe("submittedTask", (c, v) =>
             {
                 ProcessNextTask();
@@ -42,6 +39,12 @@ namespace Redis.Workflow.Common
                 }
 
             });
+        }
+
+        public void ClearBacklog()
+        {
+            Console.WriteLine("Clearing backlog");
+            while (ProcessNextTask() != null) { }
         }
 
         private string ProcessNextTask()

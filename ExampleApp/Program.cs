@@ -33,6 +33,8 @@ namespace Redis.Workflow.ExampleApp
             var th = new ThreadPoolTaskHandler();
             var wm = new WorkflowManagement(th);
 
+            wm.ClearBacklog();
+
             // Pushing a workflow causes it to be executed
             for (var i = 0; i < 10000; i++)
             {
