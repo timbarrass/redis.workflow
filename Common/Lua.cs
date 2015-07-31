@@ -14,17 +14,17 @@ namespace Redis.Workflow.Common
             Console.WriteLine(result);
         }
 
-        public static void PushTask(IDatabase DB, string task)
+        public static void PushTask(IDatabase DB, string task, string timestamp)
         {
             var script =
-                  "redis.call(\"hset\", \"task-\" .. ARGV[1], \"submitted\", \"now\")\r\n"
+                  "redis.call(\"hset\", \"task-\" .. ARGV[1], \"submitted\", \"" + timestamp + "\")\r\n"
                 + "redis.call(\"lpush\", \"submitted\", ARGV[1])\r\n"
                 + "redis.call(\"publish\", \"submittedTask\", \"\")";
 
             DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
         }
 
-        public static void CompleteTask(IDatabase DB, string task)
+        public static void CompleteTask(IDatabase DB, string task, string timestamp)
         {
             // crossed a thread boundary here .. handle with Task exceptions, better
 
@@ -32,7 +32,7 @@ namespace Redis.Workflow.Common
             {
                 var script =
                       "redis.call(\"srem\", \"running\", ARGV[1])\r\n"
-                    + "redis.call(\"hset\", \"task-\" .. ARGV[1], \"complete\", \"now\")\r\n"
+                    + "redis.call(\"hset\", \"task-\" .. ARGV[1], \"complete\", \"" + timestamp + "\")\r\n"
                     + "redis.call(\"sadd\", \"complete\", ARGV[1])\r\n"
                     + "local workflow = redis.call(\"hget\", \"task-\"..ARGV[1], \"workflow\")\r\n"
                     + "local remaining = redis.call(\"decr\", \"workflow-remaining-\" .. workflow)\r\n"
@@ -46,7 +46,7 @@ namespace Redis.Workflow.Common
                     + "redis.call(\"srem\", \"parents-\" .. child, ARGV[1])\r\n"
                     + "local parentCount = redis.call(\"scard\", \"parents-\"..child)\r\n"
                     + "if parentCount == 0 then\r\n"
-                    + "redis.call(\"hset\", \"task-\"..child, \"submitted\", \"now\")\r\n"
+                    + "redis.call(\"hset\", \"task-\"..child, \"submitted\", \"" + timestamp + "\")\r\n"
                     + "redis.call(\"lpush\", \"submitted\", child)\r\n"
                     + "redis.call(\"publish\", \"submittedTask\", \"\")\r\n"
                     + "end\r\n"
@@ -64,14 +64,13 @@ namespace Redis.Workflow.Common
             }
         }
 
-        public static string PopTask(IDatabase db)
+        public static string PopTask(IDatabase db, string timestamp)
         {
             var script =
                   "local task = redis.call(\"rpop\", \"submitted\")\r\n"
                 + "if task then\r\n"
                 + "redis.call(\"sadd\", \"running\", task)\r\n"
-                + "local stamp = \"now\"\r\n"
-                + "redis.call(\"hset\", \"task-\" .. task, \"running\", stamp)"
+                + "redis.call(\"hset\", \"task-\" .. task, \"running\", \"" + timestamp + "\")"
                 + "return task\r\n"
                 + "else\r\n"
                 + "return ''\r\n"

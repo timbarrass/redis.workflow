@@ -16,7 +16,7 @@ namespace Redis.Workflow.Common
             if (task.Equals(RedisValue.Null)) return null;
 
             db.SetAdd("running", task);
-            db.HashSet("task-" + task, new[] { new HashEntry("running", DateTime.Now.ToString("dd/MM/yy HH:mm:ss")) });
+            db.HashSet("task-" + task, new[] { new HashEntry("running", DateTime.Now.ToString("dd/MM/yy HH:mm:ss.fff")) });
 
             Console.WriteLine("popped: " + task);
 
@@ -51,7 +51,7 @@ namespace Redis.Workflow.Common
 
         public static void PushTask(IDatabase db, string task)
         {
-            db.HashSet("task-" + task, new[] { new HashEntry("submitted", DateTime.Now.ToString("dd/MM/yy HH:mm:ss")) });
+            db.HashSet("task-" + task, new[] { new HashEntry("submitted", DateTime.Now.ToString("dd/MM/yy HH:mm:ss.fff")) });
 
             db.ListLeftPush("submitted", task);
 
@@ -63,7 +63,7 @@ namespace Redis.Workflow.Common
         public static void CompleteTask(IDatabase db, string task)
         {
             db.SetRemove("running", task);
-            db.HashSet("task-" + task, new[] { new HashEntry("complete", DateTime.Now.ToString("dd/MM/yy HH:mm:ss")) });
+            db.HashSet("task-" + task, new[] { new HashEntry("complete", DateTime.Now.ToString("dd/MM/yy HH:mm:ss.fff")) });
             db.SetAdd("complete", task);
 
             var workflow = db.HashGet("task-" + task, "workflow");

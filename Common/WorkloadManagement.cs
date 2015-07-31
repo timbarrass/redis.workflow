@@ -64,7 +64,7 @@ namespace Redis.Workflow.Common
 
         private string PopTask()
         {
-            return Lua.PopTask(_db);
+            return Lua.PopTask(_db, DateTime.Now.ToString("dd/MM/yy HH:mm:ss.fff"));
         }
 
         /// <summary>
@@ -124,7 +124,7 @@ namespace Redis.Workflow.Common
             {
                 if (task.Parents.Count().Equals(0))
                 {
-                    Lua.PushTask(_db, ids[task.Name].ToString());
+                    Lua.PushTask(_db, ids[task.Name].ToString(), DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff"));
                 }
             }
 
@@ -137,14 +137,14 @@ namespace Redis.Workflow.Common
 
         private void PushTask(string task)
         {
-            Lua.PushTask(_db, task);
+            Lua.PushTask(_db, task, DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff"));
 
             Console.WriteLine("pushed: " + task);
         }
 
         private void CompleteTask(string task)
         {
-            Lua.CompleteTask(_db, task);
+            Lua.CompleteTask(_db, task, DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff"));
 
             Console.WriteLine("completed: " + task);
         }
