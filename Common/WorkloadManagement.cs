@@ -53,9 +53,11 @@ namespace Redis.Workflow.Common
 
             if (task == null) return null;
 
+            var payload = _db.HashGet("task-" + task, "payload");
+
             var rh = new SimpleResultHandler(task, CompleteTask);
 
-            _taskHandler.Run(task, rh);
+            _taskHandler.Run(payload, rh);
 
             return task;
         }
@@ -96,7 +98,8 @@ namespace Redis.Workflow.Common
                     new[] { new HashEntry("name", task.Name),
                         new HashEntry("parents", string.Join(",", task.Parents.Select(p => ids[p]))),
                         new HashEntry("children", string.Join(",", task.Children.Select(c => ids[c]))),
-                        new HashEntry("workflow", workflowId)
+                        new HashEntry("workflow", workflowId),
+                        new HashEntry("payload", task.Payload)
                     }
                     );
 

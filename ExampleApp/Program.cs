@@ -21,10 +21,10 @@ namespace Redis.Workflow.ExampleApp
             var workflow = new Redis.Workflow.Common.Workflow { Name = "TestWorkflow" };
 
             var nodes = new List<Task>();
-            nodes.Add(new Task { Name = "TestNode1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflow.Name });
-            nodes.Add(new Task { Name = "TestNode2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4" }, Workflow = workflow.Name });
-            nodes.Add(new Task { Name = "TestNode3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflow.Name });
-            nodes.Add(new Task { Name = "TestNode4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflow.Name });
+            nodes.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflow.Name });
+            nodes.Add(new Task { Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4" }, Workflow = workflow.Name });
+            nodes.Add(new Task { Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflow.Name });
+            nodes.Add(new Task { Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflow.Name });
 
             // A client will start acting on tasks immediately. May not want that to
             // be behaviour -- so might want to have an independent submit-only client. TaskHandler only needed for
@@ -36,10 +36,7 @@ namespace Redis.Workflow.ExampleApp
             wm.ClearBacklog();
 
             // Pushing a workflow causes it to be executed
-            for (var i = 0; i < 10000; i++)
-            {
-                wm.PushWorkflow(workflow, nodes);
-            }
+            wm.PushWorkflow(workflow, nodes);
 
             Console.WriteLine("Workflow pushed");
             // but how do we know when a workflow has finished?
