@@ -24,6 +24,32 @@ namespace Redis.Workflow.Common
             DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
         }
 
+        public static void FailTask(IDatabase DB, string task, string timestamp)
+        {
+            // crossed a thread boundary here .. handle with Task exceptions, better
+
+            try
+            {
+                var script =
+                      "redis.call(\"srem\", \"running\", ARGV[1])\r\n"
+                    + "redis.call(\"hset\", \"task-\" .. ARGV[1], \"failed\", \"" + timestamp + "\")\r\n"
+                    + "redis.call(\"sadd\", \"failed\", ARGV[1])\r\n"
+                    + "local workflow = redis.call(\"hget\", \"task-\"..ARGV[1], \"workflow\")\r\n"
+                    + "local remaining = redis.call(\"decr\", \"workflow-remaining-\" .. workflow)\r\n"
+                    + "redis.call(\"publish\", \"workflowFailed\", workflow)\r\n"
+                    ;
+
+                RedisResult result = DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+
+                throw;
+            }
+
+        }
+
         public static void CompleteTask(IDatabase DB, string task, string timestamp)
         {
             // crossed a thread boundary here .. handle with Task exceptions, better

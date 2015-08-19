@@ -24,16 +24,42 @@ namespace Redis.Workflow.Common
                 ProcessNextTask();
             });
 
-            sub.Subscribe("workflowComplete", (c, v) =>
+            sub.Subscribe("workflowFailed", (c, v) =>
             {
-                Console.WriteLine("Workflow complete: " + v);
+                Console.WriteLine("Workflow failed: " + v);
 
+                // this should be a structure we pass back through OnWorkflowComplete -- that is we should be passing back
+                // some actual event args
                 var taskIds = ((string)_db.HashGet("workflow-" + v, "tasks")).Split(',');
                 foreach (var taskId in taskIds)
                 {
                     var submitted = _db.HashGet("task-" + taskId, "submitted");
                     var running = _db.HashGet("task-" + taskId, "running");
                     var complete = _db.HashGet("task-" + taskId, "complete");
+                    var failed = _db.HashGet("task-" + taskId, "failed");
+                    var parents = _db.HashGet("task-" + taskId, "parents");
+                    var children = _db.HashGet("task-" + taskId, "children");
+
+                    Console.WriteLine("Task " + taskId + " s: " + submitted + " r: " + running + " c: " + complete + " pa: " + parents + " ch: " + children);
+                }
+
+                _workflowHandler.OnWorkflowFailed(v);
+            });
+
+
+            sub.Subscribe("workflowComplete", (c, v) =>
+            {
+                Console.WriteLine("Workflow complete: " + v);
+
+                // this should be a structure we pass back through OnWorkflowComplete -- that is we should be passing back
+                // some actual event args
+                var taskIds = ((string)_db.HashGet("workflow-" + v, "tasks")).Split(',');
+                foreach (var taskId in taskIds)
+                {
+                    var submitted = _db.HashGet("task-" + taskId, "submitted");
+                    var running = _db.HashGet("task-" + taskId, "running");
+                    var complete = _db.HashGet("task-" + taskId, "complete");
+                    var failed = _db.HashGet("task-" + taskId, "failed");
                     var parents = _db.HashGet("task-" + taskId, "parents");
                     var children = _db.HashGet("task-" + taskId, "children");
 
@@ -58,7 +84,7 @@ namespace Redis.Workflow.Common
 
             var payload = _db.HashGet("task-" + task, "payload");
 
-            var rh = new SimpleResultHandler(task, CompleteTask);
+            var rh = new SimpleResultHandler(task, CompleteTask, FailTask);
 
             _taskHandler.Run(payload, rh);
 
@@ -149,6 +175,15 @@ namespace Redis.Workflow.Common
             Lua.PushTask(_db, task, Timestamp());
 
             Console.WriteLine("pushed: " + task);
+        }
+
+        private void FailTask(string task)
+        {
+            // if this class is told that a task has failed, we take it to mean that the workflow
+            // has failed
+            Lua.FailTask(_db, task, Timestamp());
+
+            Console.WriteLine("failed: " + task);
         }
 
         private void CompleteTask(string task)

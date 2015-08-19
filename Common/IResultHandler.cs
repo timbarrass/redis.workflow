@@ -4,6 +4,6 @@
     {
         void OnSuccess();
 
-        // void OnFailure();
+        void OnFailure();
     }
 }

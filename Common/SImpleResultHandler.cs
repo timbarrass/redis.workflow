@@ -9,15 +9,24 @@ namespace Redis.Workflow.Common
             _completeTask(_task);
         }
 
-        internal SimpleResultHandler(string task, Action<string> CompleteTask)
+        public void OnFailure()
+        {
+            _failTask(_task);
+        }
+
+        internal SimpleResultHandler(string task, Action<string> CompleteTask, Action<string> FailTask)
         {
             _task = task;
 
             _completeTask = CompleteTask;
+
+            _failTask = FailTask;
         }
 
         private string _task;
 
         private Action<string> _completeTask;
+
+        private Action<string> _failTask;
     }
 }
