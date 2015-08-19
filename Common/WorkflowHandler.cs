@@ -6,12 +6,11 @@ namespace Redis.Workflow.Common
     {
         internal void OnWorkflowComplete(string workflow)
         {
-            if(WorkflowComplete != null)
-            {
-                WorkflowComplete(workflow);
-            }
+            var handler = WorkflowComplete;
+
+            if(WorkflowComplete != null) WorkflowComplete(this, workflow);
         }
 
-        public event Action<string> WorkflowComplete;
+        public event EventHandler<string> WorkflowComplete;
     }
 }

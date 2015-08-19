@@ -34,7 +34,7 @@ namespace Redis.Workflow.ExampleApp
             var th = new ThreadPoolTaskHandler();
             var wh = new WorkflowHandler();
             var complete = new ManualResetEvent(false);
-            wh.WorkflowComplete += w => {
+            wh.WorkflowComplete += (s, w) => {
                 Console.WriteLine("event: workflow complete: " + w);
 
                 complete.Set();
