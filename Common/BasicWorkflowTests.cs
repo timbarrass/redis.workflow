@@ -52,7 +52,7 @@ namespace Redis.Workflow.Common
             var complete = new ManualResetEvent(false);
 
             var wh = new WorkflowHandler();
-            wh.WorkflowComplete += (s, w) => { complete.Set(); };
+            wh.WorkflowComplete += w => { complete.Set(); };
 
             var wm = new WorkflowManagement(th, wh);
 

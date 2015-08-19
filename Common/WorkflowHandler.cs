@@ -8,7 +8,7 @@ namespace Redis.Workflow.Common
         {
             var handler = WorkflowComplete;
 
-            if(WorkflowComplete != null) WorkflowComplete(this, workflow);
+            if (handler != null) handler(this, workflow);
         }
 
         internal void OnWorkflowFailed(string workflow)

@@ -34,11 +34,9 @@ namespace Redis.Workflow.ExampleApp
             var th = new ThreadPoolTaskHandler();
             var wh = new WorkflowHandler();
             var complete = new ManualResetEvent(false);
-            wh.WorkflowComplete += (s, w) => {
-                Console.WriteLine("event: workflow complete: " + w);
-
-                complete.Set();
-            };
+            var failed = new ManualResetEvent(false);
+            wh.WorkflowComplete += (s, w) => { Console.WriteLine("workflow complete: " + w); complete.Set(); };
+            wh.WorkflowFailed += (s, w) => { Console.WriteLine("workflow failed: " + w); failed.Set(); };
             var wm = new WorkflowManagement(th, wh);
 
             wm.ClearBacklog();
@@ -48,7 +46,7 @@ namespace Redis.Workflow.ExampleApp
 
             Console.WriteLine("Workflow pushed");
 
-            complete.WaitOne();
+            WaitHandle.WaitAny(new[] { failed, complete });
 
             Console.ReadLine();
         }

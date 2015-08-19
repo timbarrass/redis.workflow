@@ -28,7 +28,7 @@ namespace Redis.Workflow.Common
             {
                 Console.WriteLine("Workflow failed: " + v);
 
-                // this should be a structure we pass back through OnWorkflowComplete -- that is we should be passing back
+                // this should be a structure we pass back through OnWorkflowFailed -- that is we should be passing back
                 // some actual event args
                 var taskIds = ((string)_db.HashGet("workflow-" + v, "tasks")).Split(',');
                 foreach (var taskId in taskIds)
