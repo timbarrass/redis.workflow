@@ -1,6 +1,7 @@
 ﻿using Redis.Workflow.Common;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace Redis.Workflow.ExampleApp
 {
@@ -31,7 +32,14 @@ namespace Redis.Workflow.ExampleApp
             // submission. TaskHandler needs to be stateless, taking configuration for a specific task on a run call? No, that's
             // true per-task, but agiven ITaskHandler instance might be configured once wth e.g. compute resource connection details
             var th = new ThreadPoolTaskHandler();
-            var wm = new WorkflowManagement(th);
+            var wh = new WorkflowHandler();
+            var complete = new ManualResetEvent(false);
+            wh.WorkflowComplete += w => {
+                Console.WriteLine("event: workflow complete: " + w);
+
+                complete.Set();
+            };
+            var wm = new WorkflowManagement(th, wh);
 
             wm.ClearBacklog();
 
@@ -39,7 +47,8 @@ namespace Redis.Workflow.ExampleApp
             wm.PushWorkflow(workflow, nodes);
 
             Console.WriteLine("Workflow pushed");
-            // but how do we know when a workflow has finished?
+
+            complete.WaitOne();
 
             Console.ReadLine();
         }

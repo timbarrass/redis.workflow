@@ -44,10 +44,12 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BasicWorkflowTests.cs" />
     <Compile Include="Behaviours.cs" />
     <Compile Include="Direct.cs" />
     <Compile Include="IResultHandler.cs" />
     <Compile Include="ITaskHandler.cs" />
+    <Compile Include="WorkflowHandler.cs" />
     <Compile Include="Lua.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RedisTests.cs" />

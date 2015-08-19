@@ -7,9 +7,11 @@ namespace Redis.Workflow.Common
 {
     public class WorkflowManagement
     {
-        public WorkflowManagement(ITaskHandler taskHandler, Behaviours behaviours = Behaviours.Processor | Behaviours.Submitter)
+        public WorkflowManagement(ITaskHandler taskHandler, WorkflowHandler workflowHandler, Behaviours behaviours = Behaviours.Processor | Behaviours.Submitter)
         {
             _taskHandler = taskHandler;
+
+            _workflowHandler = workflowHandler;
 
             var mux = ConnectionMultiplexer.Connect("localhost");
 
@@ -38,6 +40,7 @@ namespace Redis.Workflow.Common
                     Console.WriteLine("Task " + taskId + " s: " + submitted + " r: " + running + " c: " + complete + " pa: " + parents + " ch: " + children);
                 }
 
+                _workflowHandler.OnWorkflowComplete(v);
             });
         }
 
@@ -156,6 +159,8 @@ namespace Redis.Workflow.Common
         }
 
         private readonly ITaskHandler _taskHandler;
+
+        private readonly WorkflowHandler _workflowHandler;
 
         private readonly IDatabase _db;
 
