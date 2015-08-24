@@ -3,7 +3,7 @@ using StackExchange.Redis;
 
 namespace Redis.Workflow.Common
 {
-    public static class Lua
+    internal static class Lua
     {
         public static void HelloWorld(IDatabase db)
         {
@@ -31,7 +31,15 @@ namespace Redis.Workflow.Common
             try
             {
                 var script =
-                      "redis.call(\"srem\", \"running\", ARGV[1])\r\n"
+                      "local runningCount = redis.call(\"srem\", \"running\", ARGV[1])\r\n"
+                    + "if runningCount == 0 then\r\n"
+                    + "local abandonedCount = redis.call(\"srem\", \"abandoned\", ARGV[1])\r\n"
+                    + "if abandonedCount ~= 0 then\r\n"
+                    + "return\n"
+                    + "else\r\n"
+                    + "error(\"Completed task '\"..ARGV[1]..\" but it doesn't seem to be in expected state (running, or abandoned)\")\r\n"
+                    + "end\r\n"
+                    + "end\r\n"
                     + "redis.call(\"hset\", \"task-\" .. ARGV[1], \"failed\", \"" + timestamp + "\")\r\n"
                     + "redis.call(\"sadd\", \"failed\", ARGV[1])\r\n"
                     + "local workflow = redis.call(\"hget\", \"task-\"..ARGV[1], \"workflow\")\r\n"
@@ -50,6 +58,13 @@ namespace Redis.Workflow.Common
 
         }
 
+        /// <summary>
+        /// TODO: If task has been abandoned, clear out the abandoned entry and return without attempting to
+        /// queue any further tasks
+        /// </summary>
+        /// <param name="DB"></param>
+        /// <param name="task"></param>
+        /// <param name="timestamp"></param>
         public static void CompleteTask(IDatabase DB, string task, string timestamp)
         {
             // crossed a thread boundary here .. handle with Task exceptions, better
@@ -57,7 +72,15 @@ namespace Redis.Workflow.Common
             try
             {
                 var script =
-                      "redis.call(\"srem\", \"running\", ARGV[1])\r\n"
+                      "local runningCount = redis.call(\"srem\", \"running\", ARGV[1])\r\n"
+                    + "if runningCount == 0 then\r\n"
+                    + "local abandonedCount = redis.call(\"srem\", \"abandoned\", ARGV[1])\r\n"
+                    + "if abandonedCount ~= 0 then\r\n"
+                    + "return\n"
+                    + "else\r\n"
+                    + "error(\"Completed task '\"..ARGV[1]..\" but it doesn't seem to be in expected state (running, or abandoned)\")\r\n"
+                    + "end\r\n"
+                    + "end\r\n"
                     + "redis.call(\"hset\", \"task-\" .. ARGV[1], \"complete\", \"" + timestamp + "\")\r\n"
                     + "redis.call(\"sadd\", \"complete\", ARGV[1])\r\n"
                     + "local workflow = redis.call(\"hget\", \"task-\"..ARGV[1], \"workflow\")\r\n"
@@ -153,6 +176,39 @@ namespace Redis.Workflow.Common
             var result = db.ScriptEvaluate(script);
 
             return (long?)result;
+        }
+
+        /// <summary>
+        /// Cleans up all entries in a workflow. Attempts to do this slightly gracefully -- any
+        /// tasks in a running state will be moved to abandoned, so that when they complete it won't
+        /// bring down a process.
+        /// </summary>
+        /// <param name="db"></param>
+        /// <param name="workflow"></param>
+        public static void CleanupWorkflow(IDatabase db, string workflow)
+        {
+            var script =
+                  "local task = redis.call(\"rpop\", \"workflow-tasks-\"..ARGV[1])\r\n"
+                + "while task do\r\n"
+                + "print(task)\r\n"
+                + "redis.call(\"srem\", \"tasks\", task)\r\n"
+                + "redis.call(\"del\", \"task-\"..task)\r\n"
+                + "redis.call(\"lrem\", \"submitted\", 1, task)\r\n"
+                + "redis.call(\"srem\", \"abandoned\", task)\r\n"
+                + "redis.call(\"smove\", \"running\", \"abandoned\", task)\r\n"
+                + "redis.call(\"srem\", \"complete\", task)\r\n"
+                + "redis.call(\"srem\", \"failed\", task)\r\n"
+                + "redis.call(\"del\", \"parents-\"..task)\r\n"
+                + "redis.call(\"del\", \"children-\"..task)\r\n"
+                + "task = redis.call(\"rpop\", \"workflow-tasks-\"..ARGV[1])\r\n"
+                + "end\r\n"
+                + "redis.call(\"del\", \"workflow-tasks-\"..ARGV[1])\r\n"
+                + "redis.call(\"del\", \"workflow-remaining-\"..ARGV[1])\r\n"
+                + "redis.call(\"srem\", \"workflows\", ARGV[1])\r\n"
+                + "redis.call(\"del\", \"workflow-\"..ARGV[1])"
+                ;
+
+            db.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { workflow });
         }
     }
 }

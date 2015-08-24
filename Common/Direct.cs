@@ -7,7 +7,7 @@ namespace Redis.Workflow.Common
     /// Provides direct access to redis workflow ops without using Lua. As a result, not thread-
     /// or multi-process safe -- use with caution.
     /// </summary>
-    public static class Direct
+    internal static class Direct
     {
         public static string PopTask(IDatabase db)
         {

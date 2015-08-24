@@ -7,7 +7,7 @@ namespace Redis.Workflow.Common
     [TestClass]
     public class RedisTests 
     {
-        [TestMethod]
+        [TestMethod, Ignore]
         // To monitor I'll want to query list lengths -- I want to be happy that getting 
         // list length is O(1) rather than O(N), or I'll have to keep track of the list
         // size myself.

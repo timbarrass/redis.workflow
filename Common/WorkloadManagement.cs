@@ -101,6 +101,12 @@ namespace Redis.Workflow.Common
             return DateTime.Now.ToString("dd/MM/yy HH:mm:ss.fff");
         }
 
+        public void CleanUp(string workflow)
+        {
+            Lua.CleanupWorkflow(_db, workflow);
+
+            Console.WriteLine("cleaned: " + workflow);
+        }
 
         /// <summary>
         /// Pushes an executable workflow into the system. Task Names are assumed to be unique; there's
@@ -149,6 +155,8 @@ namespace Redis.Workflow.Common
                 }
 
                 _db.SetAdd("tasks", ids[task.Name]);
+
+                _db.ListLeftPush("workflow-tasks-" + workflowId, ids[task.Name]);
             }
 
             _db.HashSet("workflow-" + workflowId, new[] { new HashEntry("name", workflow.Name), new HashEntry("tasks", string.Join(",", ids.Values)) });
