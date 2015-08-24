@@ -31,7 +31,7 @@ namespace Redis.Workflow.ExampleApp
             // be behaviour -- so might want to have an independent submit-only client. TaskHandler only needed for
             // submission. TaskHandler needs to be stateless, taking configuration for a specific task on a run call? No, that's
             // true per-task, but agiven ITaskHandler instance might be configured once wth e.g. compute resource connection details
-            var th = new ThreadPoolTaskHandler();
+            var th = new TaskHandler();
             var wh = new WorkflowHandler();
             var complete = new ManualResetEvent(false);
             var failed = new ManualResetEvent(false);

@@ -26,36 +26,24 @@ namespace Redis.Workflow.Common
 
         public static void FailTask(IDatabase DB, string task, string timestamp)
         {
-            // crossed a thread boundary here .. handle with Task exceptions, better
+            var script =
+                  "local runningCount = redis.call(\"srem\", \"running\", ARGV[1])\r\n"
+                + "if runningCount == 0 then\r\n"
+                + "local abandonedCount = redis.call(\"srem\", \"abandoned\", ARGV[1])\r\n"
+                + "if abandonedCount ~= 0 then\r\n"
+                + "return\n"
+                + "else\r\n"
+                + "error(\"Completed task '\"..ARGV[1]..\" but it doesn't seem to be in expected state (running, or abandoned)\")\r\n"
+                + "end\r\n"
+                + "end\r\n"
+                + "redis.call(\"hset\", \"task-\" .. ARGV[1], \"failed\", \"" + timestamp + "\")\r\n"
+                + "redis.call(\"sadd\", \"failed\", ARGV[1])\r\n"
+                + "local workflow = redis.call(\"hget\", \"task-\"..ARGV[1], \"workflow\")\r\n"
+                + "local remaining = redis.call(\"decr\", \"workflow-remaining-\" .. workflow)\r\n"
+                + "redis.call(\"publish\", \"workflowFailed\", workflow)\r\n"
+                ;
 
-            try
-            {
-                var script =
-                      "local runningCount = redis.call(\"srem\", \"running\", ARGV[1])\r\n"
-                    + "if runningCount == 0 then\r\n"
-                    + "local abandonedCount = redis.call(\"srem\", \"abandoned\", ARGV[1])\r\n"
-                    + "if abandonedCount ~= 0 then\r\n"
-                    + "return\n"
-                    + "else\r\n"
-                    + "error(\"Completed task '\"..ARGV[1]..\" but it doesn't seem to be in expected state (running, or abandoned)\")\r\n"
-                    + "end\r\n"
-                    + "end\r\n"
-                    + "redis.call(\"hset\", \"task-\" .. ARGV[1], \"failed\", \"" + timestamp + "\")\r\n"
-                    + "redis.call(\"sadd\", \"failed\", ARGV[1])\r\n"
-                    + "local workflow = redis.call(\"hget\", \"task-\"..ARGV[1], \"workflow\")\r\n"
-                    + "local remaining = redis.call(\"decr\", \"workflow-remaining-\" .. workflow)\r\n"
-                    + "redis.call(\"publish\", \"workflowFailed\", workflow)\r\n"
-                    ;
-
-                RedisResult result = DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-
-                throw;
-            }
-
+            RedisResult result = DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
         }
 
         /// <summary>
@@ -67,50 +55,39 @@ namespace Redis.Workflow.Common
         /// <param name="timestamp"></param>
         public static void CompleteTask(IDatabase DB, string task, string timestamp)
         {
-            // crossed a thread boundary here .. handle with Task exceptions, better
+            var script =
+                  "local runningCount = redis.call(\"srem\", \"running\", ARGV[1])\r\n"
+                + "if runningCount == 0 then\r\n"
+                + "local abandonedCount = redis.call(\"srem\", \"abandoned\", ARGV[1])\r\n"
+                + "if abandonedCount ~= 0 then\r\n"
+                + "return\n"
+                + "else\r\n"
+                + "error(\"Completed task '\"..ARGV[1]..\" but it doesn't seem to be in expected state (running, or abandoned)\")\r\n"
+                + "end\r\n"
+                + "end\r\n"
+                + "redis.call(\"hset\", \"task-\" .. ARGV[1], \"complete\", \"" + timestamp + "\")\r\n"
+                + "redis.call(\"sadd\", \"complete\", ARGV[1])\r\n"
+                + "local workflow = redis.call(\"hget\", \"task-\"..ARGV[1], \"workflow\")\r\n"
+                + "local remaining = redis.call(\"decr\", \"workflow-remaining-\" .. workflow)\r\n"
+                + "if remaining == 0 then\r\n"
+                + "redis.call(\"publish\", \"workflowComplete\", workflow)\r\n"
+                + "return\r\n"
+                + "end\r\n"
+                + "print(\"children-\"..ARGV[1])\r\n"
+                + "local child = redis.call(\"rpop\", \"children-\"..ARGV[1])\r\n"
+                + "while child do\r\n"
+                + "redis.call(\"srem\", \"parents-\" .. child, ARGV[1])\r\n"
+                + "local parentCount = redis.call(\"scard\", \"parents-\"..child)\r\n"
+                + "if parentCount == 0 then\r\n"
+                + "redis.call(\"hset\", \"task-\"..child, \"submitted\", \"" + timestamp + "\")\r\n"
+                + "redis.call(\"lpush\", \"submitted\", child)\r\n"
+                + "redis.call(\"publish\", \"submittedTask\", \"\")\r\n"
+                + "end\r\n"
+                + "child = redis.call(\"rpop\", \"children-\"..ARGV[1])\r\n"
+                + "end"
+                ;
 
-            try
-            {
-                var script =
-                      "local runningCount = redis.call(\"srem\", \"running\", ARGV[1])\r\n"
-                    + "if runningCount == 0 then\r\n"
-                    + "local abandonedCount = redis.call(\"srem\", \"abandoned\", ARGV[1])\r\n"
-                    + "if abandonedCount ~= 0 then\r\n"
-                    + "return\n"
-                    + "else\r\n"
-                    + "error(\"Completed task '\"..ARGV[1]..\" but it doesn't seem to be in expected state (running, or abandoned)\")\r\n"
-                    + "end\r\n"
-                    + "end\r\n"
-                    + "redis.call(\"hset\", \"task-\" .. ARGV[1], \"complete\", \"" + timestamp + "\")\r\n"
-                    + "redis.call(\"sadd\", \"complete\", ARGV[1])\r\n"
-                    + "local workflow = redis.call(\"hget\", \"task-\"..ARGV[1], \"workflow\")\r\n"
-                    + "local remaining = redis.call(\"decr\", \"workflow-remaining-\" .. workflow)\r\n"
-                    + "if remaining == 0 then\r\n"
-                    + "redis.call(\"publish\", \"workflowComplete\", workflow)\r\n"
-                    + "return\r\n"
-                    + "end\r\n"
-                    + "print(\"children-\"..ARGV[1])\r\n"
-                    + "local child = redis.call(\"rpop\", \"children-\"..ARGV[1])\r\n"
-                    + "while child do\r\n"
-                    + "redis.call(\"srem\", \"parents-\" .. child, ARGV[1])\r\n"
-                    + "local parentCount = redis.call(\"scard\", \"parents-\"..child)\r\n"
-                    + "if parentCount == 0 then\r\n"
-                    + "redis.call(\"hset\", \"task-\"..child, \"submitted\", \"" + timestamp + "\")\r\n"
-                    + "redis.call(\"lpush\", \"submitted\", child)\r\n"
-                    + "redis.call(\"publish\", \"submittedTask\", \"\")\r\n"
-                    + "end\r\n"
-                    + "child = redis.call(\"rpop\", \"children-\"..ARGV[1])\r\n"
-                    + "end"
-                    ;
-
-                RedisResult result = DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-
-                throw;
-            }
+            RedisResult result = DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
         }
 
         public static string PopTask(IDatabase db, string timestamp)
