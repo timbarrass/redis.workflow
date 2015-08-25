@@ -26,6 +26,8 @@ namespace Redis.Workflow.Common
 
         public static void FailTask(IDatabase DB, string task, string timestamp)
         {
+            // TODO: move/transition to workflow id to a workflowFailed
+            // See CompleteTask for further notes about cleanup, handling the message and so on
             var script =
                   "local runningCount = redis.call(\"srem\", \"running\", ARGV[1])\r\n"
                 + "if runningCount == 0 then\r\n"
@@ -40,21 +42,24 @@ namespace Redis.Workflow.Common
                 + "redis.call(\"sadd\", \"failed\", ARGV[1])\r\n"
                 + "local workflow = redis.call(\"hget\", \"task-\"..ARGV[1], \"workflow\")\r\n"
                 + "local remaining = redis.call(\"decr\", \"workflow-remaining-\" .. workflow)\r\n"
-                + "redis.call(\"publish\", \"workflowFailed\", workflow)\r\n"
+                + "redis.call(\"lpush\", \"workflowFailed\", workflow)\r\n"
+                + "redis.call(\"publish\", \"workflowFailed\", \"\")\r\n"
                 ;
 
             RedisResult result = DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
         }
 
         /// <summary>
-        /// TODO: If task has been abandoned, clear out the abandoned entry and return without attempting to
-        /// queue any further tasks
         /// </summary>
         /// <param name="DB"></param>
         /// <param name="task"></param>
         /// <param name="timestamp"></param>
         public static void CompleteTask(IDatabase DB, string task, string timestamp)
         {
+            // TODO: if the workflow has completed move/transition to workflow id to a workflowComplete state
+            // Remember that anything in that state will need to be cleaned up as well
+            // Anyone (us) responding to the workflowComplete event message should go and pop the next complete
+            // workflow from there, just as we do with complete tasks
             var script =
                   "local runningCount = redis.call(\"srem\", \"running\", ARGV[1])\r\n"
                 + "if runningCount == 0 then\r\n"
@@ -70,7 +75,8 @@ namespace Redis.Workflow.Common
                 + "local workflow = redis.call(\"hget\", \"task-\"..ARGV[1], \"workflow\")\r\n"
                 + "local remaining = redis.call(\"decr\", \"workflow-remaining-\" .. workflow)\r\n"
                 + "if remaining == 0 then\r\n"
-                + "redis.call(\"publish\", \"workflowComplete\", workflow)\r\n"
+                + "redis.call(\"lpush\", \"workflowComplete\", workflow)\r\n"
+                + "redis.call(\"publish\", \"workflowComplete\", \"\")\r\n"
                 + "return\r\n"
                 + "end\r\n"
                 + "print(\"children-\"..ARGV[1])\r\n"
@@ -88,6 +94,38 @@ namespace Redis.Workflow.Common
                 ;
 
             RedisResult result = DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
+        }
+
+        public static string PopCompleteWorkflow(IDatabase db)
+        {
+            var script =
+                  "local workflow = redis.call(\"rpop\", \"workflowComplete\")\r\n"
+                + "if workflow then\r\n"
+                + "return workflow\r\n"
+                + "else\r\n"
+                + "return ''\r\n"
+                + "end"
+                ;
+
+            var result = db.ScriptEvaluate(script);
+
+            return (string.IsNullOrEmpty(result.ToString())) ? null : result.ToString();
+        }
+
+        public static string PopFailedWorkflow(IDatabase db)
+        {
+            var script =
+                  "local workflow = redis.call(\"rpop\", \"workflowFailed\")\r\n"
+                + "if workflow then\r\n"
+                + "return workflow\r\n"
+                + "else\r\n"
+                + "return ''\r\n"
+                + "end"
+                ;
+
+            var result = db.ScriptEvaluate(script);
+
+            return (string.IsNullOrEmpty(result.ToString())) ? null : result.ToString();
         }
 
         public static string PopTask(IDatabase db, string timestamp)
@@ -179,6 +217,8 @@ namespace Redis.Workflow.Common
                 + "redis.call(\"del\", \"children-\"..task)\r\n"
                 + "task = redis.call(\"rpop\", \"workflow-tasks-\"..ARGV[1])\r\n"
                 + "end\r\n"
+                + "redis.call(\"lrem\", \"workflowComplete\", 1, ARGV[1])\r\n"
+                + "redis.call(\"lrem\", \"workflowFailed\", 1, ARGV[1])\r\n"
                 + "redis.call(\"del\", \"workflow-tasks-\"..ARGV[1])\r\n"
                 + "redis.call(\"del\", \"workflow-remaining-\"..ARGV[1])\r\n"
                 + "redis.call(\"srem\", \"workflows\", ARGV[1])\r\n"

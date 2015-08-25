@@ -154,6 +154,8 @@ namespace Redis.Workflow.Common
                 Assert.IsFalse(db.SetContains("abandoned", t));
                 Assert.AreEqual(0, db.ListRemove("running", t));
             }
+            Assert.AreEqual(0, db.ListRemove("workflowComplete", "1"));
+            Assert.AreEqual(0, db.ListRemove("workflowFailed", "1"));
             Assert.IsFalse(db.KeyExists("workflow-tasks-1"));
             Assert.IsFalse(db.KeyExists("workflow-remaining-1"));
             Assert.IsFalse(db.SetContains("workflows", "1"));
@@ -162,6 +164,9 @@ namespace Redis.Workflow.Common
         [TestMethod]
         public void CanCleanUpAfterAFailedWorkflow()
         {
+            // TODO: test not structured entirely usefully. Does set up a failed workflow,
+            // but doesn't exercise all possible parts of the cleanup. Need to actually poke
+            // in the state representing a failed workflow and test.
             var mux = ConnectionMultiplexer.Connect("localhost");
 
             var db = mux.GetDatabase();
@@ -212,6 +217,8 @@ namespace Redis.Workflow.Common
                     Assert.IsFalse(db.SetContains("abandoned", t));
                 Assert.AreEqual(0, db.ListRemove("running", t));
             }
+            Assert.AreEqual(0, db.ListRemove("workflowComplete", "1"));
+            Assert.AreEqual(0, db.ListRemove("workflowFailed", "1"));
             Assert.IsFalse(db.KeyExists("workflow-tasks-1"));
             Assert.IsFalse(db.KeyExists("workflow-remaining-1"));
             Assert.IsFalse(db.SetContains("workflows", "1"));
