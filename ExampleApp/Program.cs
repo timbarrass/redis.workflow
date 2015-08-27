@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using StackExchange.Redis;
 
 namespace Redis.Workflow.ExampleApp
 {
@@ -37,16 +38,18 @@ namespace Redis.Workflow.ExampleApp
             var failed = new ManualResetEvent(false);
             wh.WorkflowComplete += (s, w) => { Console.WriteLine("workflow complete: " + w); complete.Set(); };
             wh.WorkflowFailed += (s, w) => { Console.WriteLine("workflow failed: " + w); failed.Set(); };
-            var wm = new WorkflowManagement(th, wh);
+            var wm = new WorkflowManagement(ConnectionMultiplexer.Connect("localhost"), th, wh);
 
             wm.ClearBacklog();
 
             // Pushing a workflow causes it to be executed
-            wm.PushWorkflow(workflow, nodes);
+            var id = wm.PushWorkflow(workflow, nodes);
 
             Console.WriteLine("Workflow pushed");
 
             WaitHandle.WaitAny(new[] { failed, complete });
+
+            wm.CleanUp(id.ToString());
 
             Console.ReadLine();
         }

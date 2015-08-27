@@ -5,32 +5,38 @@ using StackExchange.Redis;
 
 namespace Redis.Workflow.Common
 {
-    public class WorkflowManagement
+    public class WorkflowManagement : IDisposable
     {
-        public WorkflowManagement(ITaskHandler taskHandler, WorkflowHandler workflowHandler, Behaviours behaviours = Behaviours.Processor | Behaviours.Submitter)
+        public void Dispose()
+        {
+            // Interesting behaviour in tests. If we don't Unsubscribe all at end of test then
+            // we get odd varying fails, which I suspect are to do with pub/sub messages crossing
+            // test boundaries.
+            _sub.UnsubscribeAll();
+        }
+
+        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, Behaviours behaviours = Behaviours.Processor | Behaviours.Submitter)
         {
             _taskHandler = taskHandler;
 
             _workflowHandler = workflowHandler;
 
-            var mux = ConnectionMultiplexer.Connect("localhost");
-
             _db = mux.GetDatabase();
 
-            var sub = mux.GetSubscriber();
+            _sub = mux.GetSubscriber();
 
-            sub.Subscribe("submittedTask", (c, v) =>
+            _sub.Subscribe("submittedTask", (c, v) =>
             {
                 ProcessNextTask();
             });
 
-            sub.Subscribe("workflowFailed", (c, v) =>
+            _sub.Subscribe("workflowFailed", (c, v) =>
             {
                 ProcessNextFailedWorkflow();
             });
 
 
-            sub.Subscribe("workflowComplete", (c, v) =>
+            _sub.Subscribe("workflowComplete", (c, v) =>
             {
                 ProcessNextCompleteWorkflow();
             });
@@ -93,7 +99,7 @@ namespace Redis.Workflow.Common
                 var parents = _db.HashGet("task-" + taskId, "parents");
                 var children = _db.HashGet("task-" + taskId, "children");
 
-                Console.WriteLine("Task " + taskId + " s: " + submitted + " r: " + running + " c: " + complete + " pa: " + parents + " ch: " + children);
+                Console.WriteLine("Task " + taskId + " s: " + submitted + " r: " + running + " c: " + complete + " fa: " + failed + " pa: " + parents + " ch: " + children);
             }
         }
 
@@ -241,6 +247,8 @@ namespace Redis.Workflow.Common
         private readonly WorkflowHandler _workflowHandler;
 
         private readonly IDatabase _db;
+
+        private readonly ISubscriber _sub;
 
         private readonly object _turnstile = new object();
     }

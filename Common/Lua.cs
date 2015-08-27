@@ -44,6 +44,7 @@ namespace Redis.Workflow.Common
                 + "local remaining = redis.call(\"decr\", \"workflow-remaining-\" .. workflow)\r\n"
                 + "redis.call(\"lpush\", \"workflowFailed\", workflow)\r\n"
                 + "redis.call(\"publish\", \"workflowFailed\", \"\")\r\n"
+                + "print(\"workflowFailed \"..workflow..\" task \"..ARGV[1])"
                 ;
 
             RedisResult result = DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
@@ -77,9 +78,9 @@ namespace Redis.Workflow.Common
                 + "if remaining == 0 then\r\n"
                 + "redis.call(\"lpush\", \"workflowComplete\", workflow)\r\n"
                 + "redis.call(\"publish\", \"workflowComplete\", \"\")\r\n"
+                + "print(\"workflowComplete \"..workflow..\" task \"..ARGV[1])"
                 + "return\r\n"
                 + "end\r\n"
-                + "print(\"children-\"..ARGV[1])\r\n"
                 + "local child = redis.call(\"rpop\", \"children-\"..ARGV[1])\r\n"
                 + "while child do\r\n"
                 + "redis.call(\"srem\", \"parents-\" .. child, ARGV[1])\r\n"
@@ -155,7 +156,6 @@ namespace Redis.Workflow.Common
         {
             var script =
                   "local count = redis.call(\"llen\", \"workflowIds\")\r\n"
-                + "print(\"ids: \"..count)\r\n"
                 + "if tonumber(count) == 0 then\r\n"
                 + "local nextId = redis.call(\"incr\", \"currentWorkflowId\")\r\n"
                 + "redis.call(\"lpush\", \"workflowIds\", nextId)\r\n"
@@ -179,7 +179,6 @@ namespace Redis.Workflow.Common
         {
             var script =
                   "local count = redis.call(\"llen\", \"taskIds\")\r\n"
-                + "print(\"task ids: \"..count)\r\n"
                 + "if tonumber(count) == 0 then\r\n"
                 + "local nextId = redis.call(\"incr\", \"currentTaskId\")\r\n"
                 + "redis.call(\"lpush\", \"taskIds\", nextId)\r\n"
@@ -205,7 +204,6 @@ namespace Redis.Workflow.Common
             var script =
                   "local task = redis.call(\"rpop\", \"workflow-tasks-\"..ARGV[1])\r\n"
                 + "while task do\r\n"
-                + "print(task)\r\n"
                 + "redis.call(\"srem\", \"tasks\", task)\r\n"
                 + "redis.call(\"del\", \"task-\"..task)\r\n"
                 + "redis.call(\"lrem\", \"submitted\", 1, task)\r\n"
