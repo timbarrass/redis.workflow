@@ -102,11 +102,9 @@ namespace Redis.Workflow.Common
         [TestMethod]
         public void CanCleanUpAfterAFailedWorkflow()
         {
-            //var mux = ConnectionMultiplexer.Connect("localhost");
-            //var db = mux.GetDatabase();
-            //db.ScriptEvaluate("print(\"CanCleanUpAfterAFailedWorkflow\")");
-            //db.ScriptEvaluate("redis.call(\"flushdb\")");
-            //mux.Dispose();
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"CanCleanUpAfterAFailedWorkflow\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
 
             var th = new ErroringTestWithLongRunnerTaskHandler("Node4", "Node3");
 
@@ -144,46 +142,40 @@ namespace Redis.Workflow.Common
                 wm.CleanUp(workflowId.ToString());
             }
 
-            //    // Should leave highwatermark id keys alone
-            //    mux = ConnectionMultiplexer.Connect("localhost");
-            //    db = mux.GetDatabase();
-            //    for (var t = 0; t < 4; t++)
-            //    {
-            //        Assert.IsFalse(db.KeyExists("task-" + t));
-            //        Assert.IsFalse(db.KeyExists("parents-" + t));
-            //        Assert.IsFalse(db.KeyExists("children-" + t));
-            //        Assert.IsFalse(db.SetContains("tasks", t));
-            //        Assert.IsFalse(db.SetContains("submitted", t));
-            //        Assert.IsFalse(db.SetContains("complete", t));
-            //        Assert.IsFalse(db.SetContains("failed", t));
-            //        if (t == 3)
-            //        {
-            //            Assert.IsTrue(db.SetContains("abandoned", t));
-            //            db.SetRemove("abandoned", t);
-            //        }
-            //        else
-            //            Assert.IsFalse(db.SetContains("abandoned", t));
-            //        Assert.AreEqual(false, db.SetRemove("running", t));
-            //    }
-            //    Assert.AreEqual(0, db.ListRemove("workflowComplete", "1"));
-            //    Assert.AreEqual(0, db.ListRemove("workflowFailed", "1"));
-            //    Assert.IsFalse(db.KeyExists("workflow-tasks-1"));
-            //    Assert.IsFalse(db.KeyExists("workflow-remaining-1"));
-            //    Assert.IsFalse(db.SetContains("workflows", "1"));
-
-
-            //mux.Dispose();
+            // Should leave highwatermark id keys alone
+            db = _mux.GetDatabase();
+            for (var t = 0; t < 4; t++)
+            {
+                Assert.IsFalse(db.KeyExists("task-" + t));
+                Assert.IsFalse(db.KeyExists("parents-" + t));
+                Assert.IsFalse(db.KeyExists("children-" + t));
+                Assert.IsFalse(db.SetContains("tasks", t));
+                Assert.IsFalse(db.SetContains("submitted", t));
+                Assert.IsFalse(db.SetContains("complete", t));
+                Assert.IsFalse(db.SetContains("failed", t));
+                if (t == 3)
+                {
+                    Assert.IsTrue(db.SetContains("abandoned", t));
+                    db.SetRemove("abandoned", t);
+                }
+                else
+                    Assert.IsFalse(db.SetContains("abandoned", t));
+                Assert.AreEqual(false, db.SetRemove("running", t));
+            }
+            Assert.AreEqual(0, db.ListRemove("workflowComplete", "1"));
+            Assert.AreEqual(0, db.ListRemove("workflowFailed", "1"));
+            Assert.IsFalse(db.KeyExists("workflow-tasks-1"));
+            Assert.IsFalse(db.KeyExists("workflow-remaining-1"));
+            Assert.IsFalse(db.SetContains("workflows", "1"));
         }
 
 
         [TestMethod]
         public void CanSubmitAndRunAWorkflow()
         {
-            //var mux = ConnectionMultiplexer.Connect("localhost");
-            //var db = mux.GetDatabase();
-            //db.ScriptEvaluate("print(\"CanSubmitAndRunAWorkflow\")");
-            //db.ScriptEvaluate("redis.call(\"flushdb\")");
-            //mux.Dispose();
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"CanSubmitAndRunAWorkflow\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
 
             var th = new TestTaskHandler();
 
@@ -220,11 +212,9 @@ namespace Redis.Workflow.Common
         [TestMethod]
         public void CanCleanUpAfterAWorkflow()
         {
-            //var mux = ConnectionMultiplexer.Connect("localhost");
-            //var db = mux.GetDatabase();
-            //db.ScriptEvaluate("print(\"CanCleanUpAfterAWorkflow\")");
-            //db.ScriptEvaluate("redis.call(\"flushdb\")");
-            //mux.Dispose();
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"CanCleanUpAfterAWorkflow\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
 
             var th = new TestTaskHandler();
 
@@ -251,26 +241,24 @@ namespace Redis.Workflow.Common
 
                 wm.CleanUp(workflowId.ToString());
 
-                //mux = ConnectionMultiplexer.Connect("localhost");
-                //db = mux.GetDatabase();
-                //for (var t = 0; t < 6; t++)
-                //{
-                //    Assert.IsFalse(db.KeyExists("task-" + t));
-                //    Assert.IsFalse(db.KeyExists("parents-" + t));
-                //    Assert.IsFalse(db.KeyExists("children-" + t));
-                //    Assert.IsFalse(db.SetContains("tasks", t));
-                //    Assert.IsFalse(db.SetContains("submitted", t));
-                //    Assert.IsFalse(db.SetContains("complete", t));
-                //    Assert.IsFalse(db.SetContains("failed", t));
-                //    Assert.IsFalse(db.SetContains("abandoned", t));
-                //    Assert.AreEqual(0, db.ListRemove("running", t));
-                //}
-                //Assert.AreEqual(0, db.ListRemove("workflowComplete", "1"));
-                //Assert.AreEqual(0, db.ListRemove("workflowFailed", "1"));
-                //Assert.IsFalse(db.KeyExists("workflow-tasks-1"));
-                //Assert.IsFalse(db.KeyExists("workflow-remaining-1"));
-                //Assert.IsFalse(db.SetContains("workflows", "1"));
-                //mux.Dispose();
+                db = _mux.GetDatabase();
+                for (var t = 0; t < 6; t++)
+                {
+                    Assert.IsFalse(db.KeyExists("task-" + t));
+                    Assert.IsFalse(db.KeyExists("parents-" + t));
+                    Assert.IsFalse(db.KeyExists("children-" + t));
+                    Assert.IsFalse(db.SetContains("tasks", t));
+                    Assert.IsFalse(db.SetContains("submitted", t));
+                    Assert.IsFalse(db.SetContains("complete", t));
+                    Assert.IsFalse(db.SetContains("failed", t));
+                    Assert.IsFalse(db.SetContains("abandoned", t));
+                    Assert.AreEqual(0, db.ListRemove("running", t));
+                }
+                Assert.AreEqual(0, db.ListRemove("workflowComplete", "1"));
+                Assert.AreEqual(0, db.ListRemove("workflowFailed", "1"));
+                Assert.IsFalse(db.KeyExists("workflow-tasks-1"));
+                Assert.IsFalse(db.KeyExists("workflow-remaining-1"));
+                Assert.IsFalse(db.SetContains("workflows", "1"));
             }
         }
 
@@ -280,11 +268,9 @@ namespace Redis.Workflow.Common
         [TestMethod]
         public void IfATaskIsMarkedFailed_WorfklowFailsAndNoMoreTasksSubmitted()
         {
-            //var mux = ConnectionMultiplexer.Connect("localhost");
-            //var db = mux.GetDatabase();
-            //db.ScriptEvaluate("print(\"IfATaskIsMarkedFailed_WorfklowFailsAndNoMoreTasksSubmitted\")");
-            //db.ScriptEvaluate("redis.call(\"flushdb\")");
-            //mux.Dispose();
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"IfATaskIsMarkedFailed_WorfklowFailsAndNoMoreTasksSubmitted\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
 
             var th = new ErroringTestTaskHandler(2);
 
