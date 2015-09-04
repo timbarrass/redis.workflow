@@ -158,61 +158,11 @@ namespace Redis.Workflow.Common
         /// <param name="workflow"></param>
         /// <param name="tasks"></param>
         /// <returns>The handle used to identify this workflow instance</returns>
-        public long PushWorkflow(Workflow workflow, IEnumerable<Task> tasks)
+        public long? PushWorkflow(Workflow workflow)
         {
-            long? workflowId = Lua.GetWorkflowId(_db);
+            var json = workflow.ToJson();
 
-            if (!workflowId.HasValue || _db.KeyExists("workflow-" + workflowId)) throw new InvalidOperationException("State may be corrupt; workflow id " + workflowId + " already allocated or is null");
-            
-            var ids = new Dictionary<string, long>();
-            foreach (var task in tasks)
-            {
-                long? taskId = Lua.GetTaskId(_db);
-
-                if (!taskId.HasValue || _db.KeyExists("task-" + taskId)) throw new InvalidOperationException("State may be corrupt; task id " + workflowId + " already allocated or is null");
-
-                ids[task.Name] = taskId.Value;
-            }
-
-            foreach (var task in tasks)
-            {
-                _db.HashSet("task-" + ids[task.Name],
-                    new[] { new HashEntry("name", task.Name),
-                        new HashEntry("parents", string.Join(",", task.Parents.Select(p => ids[p]))),
-                        new HashEntry("children", string.Join(",", task.Children.Select(c => ids[c]))),
-                        new HashEntry("workflow", workflowId),
-                        new HashEntry("payload", task.Payload)
-                    }
-                    );
-
-                foreach (var parent in task.Parents)
-                {
-                    _db.SetAdd("parents-" + ids[task.Name], ids[parent]);
-                }
-
-                foreach (var child in task.Children)
-                {
-                    _db.ListLeftPush("children-" + ids[task.Name], ids[child]);
-                }
-
-                _db.SetAdd("tasks", ids[task.Name]);
-
-                _db.ListLeftPush("workflow-tasks-" + workflowId, ids[task.Name]);
-            }
-
-            _db.HashSet("workflow-" + workflowId, new[] { new HashEntry("name", workflow.Name), new HashEntry("tasks", string.Join(",", ids.Values)) });
-            _db.StringSet("workflow-remaining-" + workflowId, tasks.Count());
-
-            // and finally do this, as this'll actually set thing in motion
-            foreach (var task in tasks)
-            {
-                if (task.Parents.Count().Equals(0))
-                {
-                    Lua.PushTask(_db, ids[task.Name].ToString(), Timestamp());
-                }
-            }
-
-            _db.SetAdd("workflows", workflowId);
+            var workflowId = Lua.PushWorkflow(_db, json, Timestamp());
 
             Console.WriteLine("pushed: " + workflow.Name + " as workflow " + workflowId);
 

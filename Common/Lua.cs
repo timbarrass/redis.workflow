@@ -1,17 +1,60 @@
-﻿using System;
-using StackExchange.Redis;
+﻿using StackExchange.Redis;
 
 namespace Redis.Workflow.Common
 {
     internal static class Lua
     {
-        public static void HelloWorld(IDatabase db)
+        public static long? PushWorkflow(IDatabase db, string workflowJson, string timestamp)
         {
-            var script = "local msg = \"Hello World\" " + "return msg";
+            var script =
+                  "local taskCount = 0\r\n"
+                + "local taskList = \"\"\r\n"
+                + "local workflowId = redis.call(\"incr\", \"currentWorkflowId\")\r\n"
+                + "local tasks = cjson.decode(ARGV[1])[\"Tasks\"]\r\n"
+                + "for key, value in next,tasks,nil do\r\n"
+                + "taskCount = taskCount + 1\r\n"
+                + "local taskId = redis.call(\"incr\", \"currentTaskId\")\r\n"                  
+                + "local name = value[\"Name\"]\r\n"
+                + "redis.call(\"hset\", \"temp-workflow-tasklookup-\"..workflowId, name, taskId)\r\n"
+                + "taskList = taskList..\",\"..taskId\r\n"
+                + "end\r\n"
+                + "taskList = string.sub(taskList, 2, string.len(taskList))\r\n"
+                + "for key, value in next,tasks,nil do\r\n"
+                + "local name = value[\"Name\"]\r\n"
+                + "local payload = value[\"Payload\"]\r\n"
+                + "local taskId = redis.call(\"hget\", \"temp-workflow-tasklookup-\"..workflowId, name)\r\n"
+                + "redis.call(\"hset\", \"task-\"..taskId, \"name\", name)\r\n"
+                + "redis.call(\"hset\", \"task-\"..taskId, \"workflow\", workflowId)\r\n"
+                + "redis.call(\"hset\", \"task-\"..taskId, \"payload\", payload)\r\n"
+                + "local parentCount = 0\r\n"
+                + "for key2, parentName in next,value[\"Parents\"],nil do\r\n"
+                + "local parentTaskId = redis.call(\"hget\", \"temp-workflow-tasklookup-\"..workflowId, parentName)\r\n"
+                + "redis.call(\"sadd\", \"parents-\"..taskId, parentTaskId)\r\n"
+                + "parentCount = parentCount + 1\r\n"
+                + "end\r\n"
+                + "if parentCount == 0 then\r\n"
+                + "redis.call(\"hset\", \"task-\" .. taskId, \"submitted\", \"" + timestamp + "\")\r\n"
+                + "redis.call(\"lpush\", \"submitted\", taskId)\r\n"
+                + "redis.call(\"publish\", \"submittedTask\", \"\")"
+                + "end\r\n"
+                + "for key2, childName in next,value[\"Children\"],nil do\r\n"
+                + "local childTaskId = redis.call(\"hget\", \"temp-workflow-tasklookup-\"..workflowId, childName)\r\n"
+                + "redis.call(\"lpush\", \"children-\"..taskId, childTaskId)\r\n"
+                + "end\r\n"
+                + "redis.call(\"sadd\", \"tasks\", taskId)\r\n"
+                + "redis.call(\"lpush\", \"workflow-tasks-\"..workflowId, taskId)\r\n"
+                + "end\r\n"
+                + "redis.call(\"set\", \"workflow-remaining-\"..workflowId, taskCount)\r\n"
+                + "redis.call(\"hset\", \"workflow-\"..workflowId, \"name\", workflowId)\r\n" // is this right?
+                + "redis.call(\"hset\", \"workflow-\"..workflowId, \"tasks\", taskList)\r\n"
+                + "redis.call(\"sadd\", \"workflows\", workflowId)\r\n"
+                + "redis.call(\"del\", \"temp-workflow-tasklookup-\"..workflowId)\r\n"
+                + "return workflowId"
+                ;
 
-            var result = db.ScriptEvaluate(script);
+            var result = db.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { workflowJson });
 
-            Console.WriteLine(result);
+            return (long?)result;
         }
 
         public static void PushTask(IDatabase DB, string task, string timestamp)
@@ -26,8 +69,6 @@ namespace Redis.Workflow.Common
 
         public static void FailTask(IDatabase DB, string task, string timestamp)
         {
-            // TODO: move/transition to workflow id to a workflowFailed
-            // See CompleteTask for further notes about cleanup, handling the message and so on
             var script =
                   "local runningCount = redis.call(\"srem\", \"running\", ARGV[1])\r\n"
                 + "if runningCount == 0 then\r\n"
@@ -44,7 +85,6 @@ namespace Redis.Workflow.Common
                 + "local remaining = redis.call(\"decr\", \"workflow-remaining-\" .. workflow)\r\n"
                 + "redis.call(\"lpush\", \"workflowFailed\", workflow)\r\n"
                 + "redis.call(\"publish\", \"workflowFailed\", \"\")\r\n"
-                + "print(\"workflowFailed \"..workflow..\" task \"..ARGV[1])"
                 ;
 
             RedisResult result = DB.ScriptEvaluate(script, new RedisKey[] { }, new RedisValue[] { task });
@@ -57,16 +97,12 @@ namespace Redis.Workflow.Common
         /// <param name="timestamp"></param>
         public static void CompleteTask(IDatabase DB, string task, string timestamp)
         {
-            // TODO: if the workflow has completed move/transition to workflow id to a workflowComplete state
-            // Remember that anything in that state will need to be cleaned up as well
-            // Anyone (us) responding to the workflowComplete event message should go and pop the next complete
-            // workflow from there, just as we do with complete tasks
             var script =
                   "local runningCount = redis.call(\"srem\", \"running\", ARGV[1])\r\n"
                 + "if runningCount == 0 then\r\n"
                 + "local abandonedCount = redis.call(\"srem\", \"abandoned\", ARGV[1])\r\n"
                 + "if abandonedCount ~= 0 then\r\n"
-                + "return\n"
+                + "return\r\n"
                 + "else\r\n"
                 + "error(\"Completed task '\"..ARGV[1]..\" but it doesn't seem to be in expected state (running, or abandoned)\")\r\n"
                 + "end\r\n"
@@ -78,7 +114,6 @@ namespace Redis.Workflow.Common
                 + "if remaining == 0 then\r\n"
                 + "redis.call(\"lpush\", \"workflowComplete\", workflow)\r\n"
                 + "redis.call(\"publish\", \"workflowComplete\", \"\")\r\n"
-                + "print(\"workflowComplete \"..workflow..\" task \"..ARGV[1])"
                 + "return\r\n"
                 + "end\r\n"
                 + "local child = redis.call(\"rpop\", \"children-\"..ARGV[1])\r\n"
