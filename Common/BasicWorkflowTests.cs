@@ -212,7 +212,7 @@ namespace Redis.Workflow.Common
 
                 wm.PushWorkflow(workflow);
 
-                var result = complete.WaitOne(/*2000*/);
+                var result = complete.WaitOne(2000);
 
                 Console.WriteLine("WM events"); foreach (var ev in events) Console.WriteLine("Event: " + ev);
 
@@ -348,6 +348,9 @@ namespace Redis.Workflow.Common
 
                 wm.PushWorkflow(workflow);
             }
+
+            // assert
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
         }
 
 
