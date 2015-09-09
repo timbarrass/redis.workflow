@@ -156,7 +156,7 @@ namespace Redis.Workflow.Common
             db = _mux.GetDatabase();
             for (var t = 0; t < 4; t++)
             {
-                Assert.IsFalse(db.KeyExists("task-" + t));
+                Assert.IsFalse(db.KeyExists("task:" + t));
                 Assert.IsFalse(db.KeyExists("parents-" + t));
                 Assert.IsFalse(db.KeyExists("children-" + t));
                 Assert.IsFalse(db.SetContains("tasks", t));
@@ -258,7 +258,7 @@ namespace Redis.Workflow.Common
                 db = _mux.GetDatabase();
                 for (var t = 0; t < 6; t++)
                 {
-                    Assert.IsFalse(db.KeyExists("task-" + t));
+                    Assert.IsFalse(db.KeyExists("task:" + t));
                     Assert.IsFalse(db.KeyExists("parents-" + t));
                     Assert.IsFalse(db.KeyExists("children-" + t));
                     Assert.IsFalse(db.SetContains("tasks", t));
@@ -309,7 +309,7 @@ namespace Redis.Workflow.Common
 
                 wm.PushWorkflow(workflow);
 
-                var result = WaitHandle.WaitAny(new[] { failed, complete }, 4000);
+                var result = WaitHandle.WaitAny(new[] { failed, complete }, 2000);
 
                 Assert.AreEqual(0, result);
                 Assert.AreEqual(2, th.TaskRunCount); // only 2 get sent through the task handler; second fails, so no children are executed

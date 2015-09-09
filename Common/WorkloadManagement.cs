@@ -89,15 +89,15 @@ namespace Redis.Workflow.Common
         {
             // this should be a structure we pass back through OnWorkflowComplete -- that is we should be passing back
             // some actual event args
-            var taskIds = ((string)_db.HashGet("workflow-" + workflowId, "tasks")).Split(',');
+            var taskIds = ((string)_db.HashGet("workflow:" + workflowId, "tasks")).Split(',');
             foreach (var taskId in taskIds)
             {
-                var submitted = _db.HashGet("task-" + taskId, "submitted");
-                var running = _db.HashGet("task-" + taskId, "running");
-                var complete = _db.HashGet("task-" + taskId, "complete");
-                var failed = _db.HashGet("task-" + taskId, "failed");
-                var parents = _db.HashGet("task-" + taskId, "parents");
-                var children = _db.HashGet("task-" + taskId, "children");
+                var submitted = _db.HashGet("task:" + taskId, "submitted");
+                var running = _db.HashGet("task:" + taskId, "running");
+                var complete = _db.HashGet("task:" + taskId, "complete");
+                var failed = _db.HashGet("task:" + taskId, "failed");
+                var parents = _db.HashGet("task:" + taskId, "parents");
+                var children = _db.HashGet("task:" + taskId, "children");
 
                 Console.WriteLine("Task " + taskId + " s: " + submitted + " r: " + running + " c: " + complete + " fa: " + failed + " pa: " + parents + " ch: " + children);
             }
@@ -123,7 +123,7 @@ namespace Redis.Workflow.Common
             // TODO: suspect race here, as we could pop the task then someone could cleanup.
             // Consider grabbing task id and payload together
             // Consider Lua/checking to see if task exists before grabbing payload -- but what to do if it doesn't?
-            var payload = _db.HashGet("task-" + task, "payload");
+            var payload = _db.HashGet("task:" + task, "payload");
 
             var rh = new SimpleResultHandler(task, CompleteTask, FailTask);
 
