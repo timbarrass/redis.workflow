@@ -40,6 +40,9 @@ namespace Redis.Workflow.Common
             {
                 ProcessNextCompleteWorkflow();
             });
+
+            _lua = new Lua();
+            _lua.LoadScripts(_db, mux.GetServer("localhost:6379"));
         }
 
         private string ProcessNextFailedWorkflow()
@@ -60,7 +63,7 @@ namespace Redis.Workflow.Common
 
         private string PopFailedWorkflow()
         {
-            return Lua.PopFailedWorkflow(_db);
+            return _lua.PopFailedWorkflow(_db);
         }
 
         private string ProcessNextCompleteWorkflow()
@@ -81,7 +84,7 @@ namespace Redis.Workflow.Common
 
         private string PopCompleteWorkflow()
         {
-            return Lua.PopCompleteWorkflow(_db);
+            return _lua.PopCompleteWorkflow(_db);
         }
 
 
@@ -134,7 +137,7 @@ namespace Redis.Workflow.Common
 
         private string PopTask()
         {
-            return Lua.PopTask(_db, Timestamp());
+            return _lua.PopTask(_db, Timestamp());
         }
 
         private static string Timestamp()
@@ -144,7 +147,7 @@ namespace Redis.Workflow.Common
 
         public void CleanUp(string workflow)
         {
-            Lua.CleanupWorkflow(_db, workflow);
+            _lua.CleanupWorkflow(_db, workflow);
 
             Console.WriteLine("cleaned: " + workflow);
         }
@@ -162,7 +165,7 @@ namespace Redis.Workflow.Common
         {
             var json = workflow.ToJson();
 
-            var workflowId = Lua.PushWorkflow(_db, json, Timestamp());
+            var workflowId = _lua.PushWorkflow(_db, json, Timestamp());
 
             Console.WriteLine("pushed: " + workflow.Name + " as workflow " + workflowId);
 
@@ -171,7 +174,7 @@ namespace Redis.Workflow.Common
 
         private void PushTask(string task)
         {
-            Lua.PushTask(_db, task, Timestamp());
+            _lua.PushTask(_db, task, Timestamp());
 
             Console.WriteLine("pushed: " + task);
         }
@@ -180,14 +183,14 @@ namespace Redis.Workflow.Common
         {
             // if this class is told that a task has failed, we take it to mean that the workflow
             // has failed
-            Lua.FailTask(_db, task, Timestamp());
+            _lua.FailTask(_db, task, Timestamp());
 
             Console.WriteLine("failed: " + task);
         }
 
         private void CompleteTask(string task)
         {
-            Lua.CompleteTask(_db, task, Timestamp());
+            _lua.CompleteTask(_db, task, Timestamp());
 
             Console.WriteLine("completed: " + task);
         }
@@ -199,6 +202,8 @@ namespace Redis.Workflow.Common
         private readonly IDatabase _db;
 
         private readonly ISubscriber _sub;
+
+        private readonly Lua _lua;
 
         private readonly object _turnstile = new object();
     }

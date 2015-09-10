@@ -1,12 +1,37 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using StackExchange.Redis;
 using System;
+using System.Text;
 
 namespace Redis.Workflow.Common
 {
     [TestClass]
     public class RedisTests 
     {
+        [TestMethod, Ignore]
+        public void ScriptReload()
+        {
+            var script = "print(\"Hello World!\")";
+
+            var mux = ConnectionMultiplexer.Connect("localhost");
+
+            var db = mux.GetDatabase();
+
+            var srv = mux.GetServer("localhost:6379");
+
+            var prepped = LuaScript.Prepare(script);
+
+            var loaded = prepped.Load(srv);
+
+            var prepped2 = LuaScript.Prepare(script);
+
+            var loaded2 = prepped2.Load(srv);
+
+            Assert.AreEqual(Encoding.Default.GetString(loaded.Hash), Encoding.Default.GetString(loaded2.Hash));
+
+            Assert.AreEqual(loaded, loaded2);
+        }
+
         [TestMethod, Ignore]
         // To monitor I'll want to query list lengths -- I want to be happy that getting 
         // list length is O(1) rather than O(N), or I'll have to keep track of the list

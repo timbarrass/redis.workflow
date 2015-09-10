@@ -1,8 +1,9 @@
 ﻿using StackExchange.Redis;
+using System.Collections.Generic;
 
 namespace Redis.Workflow.Common
 {
-    internal static class Lua
+    internal class Lua
     {
         private static readonly string _pushWorkflowScript =
               "local taskCount = 0\r\n"
@@ -176,34 +177,53 @@ namespace Redis.Workflow.Common
                 + "redis.call(\"del\", \"workflow:\"..@workflowId)"
                 ;
 
+        private readonly Dictionary<string, LoadedLuaScript> _scripts = new Dictionary<string, LoadedLuaScript>();
 
-        public static long? PushWorkflow(IDatabase db, string workflowJson, string timestamp)
+        public void LoadScripts(IDatabase db, IServer srv)
         {
-            var prepped = LuaScript.Prepare(_pushWorkflowScript);
+            var scripts = new Dictionary<string, string>
+            {
+                { "pushWorkflow",        _pushWorkflowScript },
+                { "pushTask",            _pushTaskScript },
+                { "popTask",             _popTaskScript },
+                { "completeTask",        _completeTaskScript },
+                { "failTask",            _failTaskScript },
+                { "popFailedWorkflow",   _popFailedWorkflowScript },
+                { "popCompleteWorkflow", _popCompleteWorkflowScript },
+                { "getWorkflowId",       _getWorkflowIdScript },
+                { "getTaskId",           _getTaskIdScript },
+                { "cleanupWorkflow",     _cleanupWorkflowScript },
+            };
 
+            foreach (var scriptName in scripts.Keys)
+            {
+                var prepped = LuaScript.Prepare(scripts[scriptName]);
+
+                _scripts.Add(scriptName, prepped.Load(srv));
+            }
+        }
+
+        public long? PushWorkflow(IDatabase db, string workflowJson, string timestamp)
+        {
             var arguments = new { workflowJson = workflowJson, timestamp = timestamp };
 
-            var result = prepped.Evaluate(db, arguments);
+            var result = _scripts["pushWorkflow"].Evaluate(db, arguments);
 
             return (long?)result;
         }
 
-        public static void PushTask(IDatabase db, string task, string timestamp)
+        public void PushTask(IDatabase db, string task, string timestamp)
         {
-            var prepped = LuaScript.Prepare(_pushTaskScript);
-
             var arguments = new { taskId = task, timestamp = timestamp };
 
-            prepped.Evaluate(db, arguments);
+            _scripts["pushTask"].Evaluate(db, arguments);
         }
 
-        public static void FailTask(IDatabase db, string task, string timestamp)
+        public void FailTask(IDatabase db, string task, string timestamp)
         {
-            var prepped = LuaScript.Prepare(_failTaskScript);
-
             var arguments = new { taskId = task, timestamp = timestamp };
 
-            prepped.Evaluate(db, arguments);
+            _scripts["failTask"].Evaluate(db, arguments);
         }
 
         /// <summary>
@@ -211,40 +231,32 @@ namespace Redis.Workflow.Common
         /// <param name="db"></param>
         /// <param name="task"></param>
         /// <param name="timestamp"></param>
-        public static void CompleteTask(IDatabase db, string task, string timestamp)
+        public void CompleteTask(IDatabase db, string task, string timestamp)
         {
-            var prepped = LuaScript.Prepare(_completeTaskScript);
-
             var arguments = new { taskId = task, timestamp = timestamp };
 
-            prepped.Evaluate(db, arguments);
+            _scripts["completeTask"].Evaluate(db, arguments);
         }
 
-        public static string PopCompleteWorkflow(IDatabase db)
+        public string PopCompleteWorkflow(IDatabase db)
         {
-            var prepped = LuaScript.Prepare(_popCompleteWorkflowScript);
-
-            var result = prepped.Evaluate(db);
+            var result = _scripts["popCompleteWorkflow"].Evaluate(db);
 
             return (string.IsNullOrEmpty(result.ToString())) ? null : result.ToString();
         }
 
-        public static string PopFailedWorkflow(IDatabase db)
+        public string PopFailedWorkflow(IDatabase db)
         {
-            var prepped = LuaScript.Prepare(_popFailedWorkflowScript);
-
-            var result = prepped.Evaluate(db);
+            var result = _scripts["popFailedWorkflow"].Evaluate(db);
 
             return (string.IsNullOrEmpty(result.ToString())) ? null : result.ToString();
         }
 
-        public static string PopTask(IDatabase db, string timestamp)
+        public string PopTask(IDatabase db, string timestamp)
         {
-            var prepped = LuaScript.Prepare(_popTaskScript);
-
             var arguments = new { timestamp = timestamp };
 
-            var result = prepped.Evaluate(db, arguments);
+            var result = _scripts["popTask"].Evaluate(db, arguments);
 
             return (string.IsNullOrEmpty(result.ToString())) ? null : result.ToString();
         }
@@ -255,11 +267,9 @@ namespace Redis.Workflow.Common
         /// </summary>
         /// <param name="db">Redis db</param>
         /// <returns>Next workflow id</returns>
-        public static long? GetWorkflowId(IDatabase db)
+        public long? GetWorkflowId(IDatabase db)
         {
-            var prepped = LuaScript.Prepare(_getWorkflowIdScript);
-
-            var result = prepped.Evaluate(db);
+            var result = _scripts["getWorkflowId"].Evaluate(db);
 
             return (long?)result;
         }
@@ -270,11 +280,9 @@ namespace Redis.Workflow.Common
         /// </summary>
         /// <param name="db">Redis db</param>
         /// <returns>Next task id</returns>
-        public static long? GetTaskId(IDatabase db)
+        public long? GetTaskId(IDatabase db)
         {
-            var prepped = LuaScript.Prepare(_getTaskIdScript);
-
-            var result = prepped.Evaluate(db);
+            var result = _scripts["getTaskId"].Evaluate(db);
 
             return (long?)result;
         }
@@ -286,13 +294,11 @@ namespace Redis.Workflow.Common
         /// </summary>
         /// <param name="db"></param>
         /// <param name="workflow"></param>
-        public static void CleanupWorkflow(IDatabase db, string workflow)
+        public void CleanupWorkflow(IDatabase db, string workflow)
         {
-            var prepped = LuaScript.Prepare(_cleanupWorkflowScript);
-
             var arguments = new { workflowId = workflow };
 
-            prepped.Evaluate(db, arguments);
+            _scripts["cleanupWorkflow"].Evaluate(db, arguments);
         }
     }
 }
