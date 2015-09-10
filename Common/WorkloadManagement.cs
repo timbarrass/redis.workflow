@@ -179,6 +179,17 @@ namespace Redis.Workflow.Common
             return workflowId.Value;
         }
 
+        public async System.Threading.Tasks.Task<long?> PushWorkflowAsync(Workflow workflow)
+        {
+            var json = workflow.ToJson();
+
+            var workflowId = await _lua.PushWorkflowAsync(_db, json, Timestamp());
+
+            Console.WriteLine("pushed: " + workflow.Name + " as workflow " + workflowId);
+
+            return workflowId.Value;
+        }
+
         private void PushTask(string task)
         {
             _lua.PushTask(_db, task, Timestamp());

@@ -1,5 +1,6 @@
 ﻿using StackExchange.Redis;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace Redis.Workflow.Common
 {
@@ -205,6 +206,16 @@ namespace Redis.Workflow.Common
                 _scripts.Add(scriptName, prepped.Load(srv));
             }
         }
+
+        public async System.Threading.Tasks.Task<long?> PushWorkflowAsync(IDatabase db, string workflowJson, string timestamp)
+        {
+            var arguments = new { workflowJson = workflowJson, timestamp = timestamp };
+
+            var result = await _scripts["pushWorkflow"].EvaluateAsync(db, arguments);
+
+            return (long?)result;
+        }
+
 
         public long? PushWorkflow(IDatabase db, string workflowJson, string timestamp)
         {
