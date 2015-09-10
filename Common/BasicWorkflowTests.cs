@@ -8,9 +8,35 @@ namespace Redis.Workflow.Common
 {
     public class BlockingTaskHandler : ITaskHandler
     {
+        public string ID;
+
+        public ManualResetEvent LetRun = new ManualResetEvent(false);
+
+        public ManualResetEvent Gate = new ManualResetEvent(false);
+
+        public ManualResetEvent Abort = new ManualResetEvent(false);
+
+        public bool LetComplete = false;
+
+        public BlockingTaskHandler(string id = "1")
+        {
+            ID = id;
+        }
+
         public void Run(string configuration, IResultHandler resultHandler)
         {
-            ;
+            Gate.Set();
+
+            var result = WaitHandle.WaitAny(new[] { Abort, LetRun });
+
+            switch(result)
+            {
+                case 0:
+                    return;
+                case 1:
+                    resultHandler.OnSuccess();
+                    break;
+            };
         }
     }
 
@@ -324,6 +350,7 @@ namespace Redis.Workflow.Common
             db.ScriptEvaluate("redis.call(\"flushdb\")");
 
             var th = new BlockingTaskHandler();
+            th.LetRun.Set();
 
             var complete = new ManualResetEvent(false);
 
@@ -361,6 +388,7 @@ namespace Redis.Workflow.Common
             db.ScriptEvaluate("redis.call(\"flushdb\")");
 
             var th = new BlockingTaskHandler();
+            th.LetRun.Set();
 
             var complete = new ManualResetEvent(false);
 
@@ -391,6 +419,110 @@ namespace Redis.Workflow.Common
             // assert
             db.ScriptEvaluate("redis.call(\"flushdb\")");
         }
+
+        [TestMethod]
+        public void CanQueryForOwnTasks()
+        {
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"CanSubmitAndRunAWorkflow\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+
+            var th = new BlockingTaskHandler();
+
+            var complete = new ManualResetEvent(false);
+
+            var events = new List<string>();
+
+            var wh = new WorkflowHandler();
+            wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
+
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            {
+                var workflowName = "TestWorkflow";
+
+                var tasks = new List<Task>();
+                tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
+                tasks.Add(new Task { Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
+                tasks.Add(new Task { Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+
+                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+
+                wm.PushWorkflow(workflow);
+
+                var myTasks = wm.FindTasks();
+
+                Assert.AreEqual(1, myTasks.Length);
+                Assert.AreEqual("1", myTasks[0]);
+
+                th.LetRun.Set();
+
+                complete.WaitOne();
+            }
+
+            // assert
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+        }
+
+        [TestMethod]
+        public void CanResetOwnTasks()
+        {
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"CanSubmitAndRunAWorkflow\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+
+            var th = new BlockingTaskHandler("1");
+            var th2 = new BlockingTaskHandler("2");
+
+            var complete = new ManualResetEvent(false);
+
+            var events = new List<string>();
+
+            var wh = new WorkflowHandler();
+            wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
+
+            var wm = new WorkflowManagement(_mux, th, wh, "test");
+
+                var workflowName = "TestWorkflow";
+
+                var tasks = new List<Task>();
+                tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
+                tasks.Add(new Task { Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
+                tasks.Add(new Task { Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+
+                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+
+                wm.PushWorkflow(workflow);
+
+                th.Gate.WaitOne();
+
+                // we've picked up the first task, and don't want to pick up any more
+                wm.Dispose();
+
+                // create a new wm to simulate a restart of a component
+                using (var wm2 = new WorkflowManagement(_mux, th2, wh, "test"))
+                {
+                    var myTasks = wm2.ResubmitTasks();
+
+                    Assert.AreEqual(1, myTasks.Length);
+                    Assert.AreEqual("1", myTasks[0]);
+
+                    th.Abort.Set();
+                    th2.LetRun.Set();
+
+                    complete.WaitOne();
+                }
+
+            // assert
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+        }
+
+
 
         private readonly ConnectionMultiplexer _mux;
     }

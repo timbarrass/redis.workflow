@@ -159,6 +159,16 @@ namespace Redis.Workflow.Common
             Console.WriteLine("cleaned: " + workflow);
         }
 
+        public string[] FindTasks()
+        {
+            return _lua.FindTasksFor(_db, Identifier);
+        }
+
+        public string[] ResubmitTasks()
+        {
+            return _lua.ResubmitTasksFor(_db, Identifier, Timestamp());
+        }
+
         /// <summary>
         /// Pushes an executable workflow into the system. Task Names are assumed to be unique; there's
         /// no checking of integrity and consistency of child-parent relationships (so no guarantee of transitive

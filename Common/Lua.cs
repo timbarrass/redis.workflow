@@ -181,22 +181,42 @@ namespace Redis.Workflow.Common
                 + "redis.call(\"del\", \"workflow:\"..@workflowId)"
                 ;
 
+        private static readonly string _resetTasksForResponsibleComponentScript =
+              "local tasks = redis.call(\"smembers\", \"responsible:\"..@responsible)\r\n"
+            + "for key, task in next,tasks,nil do\r\n"
+            + "print(\"key \"..key..\" value \"..task)"
+            + "redis.call(\"hset\", \"task:\" .. task, \"submitted\", @timestamp)\r\n"
+            + "redis.call(\"lpush\", \"submitted\", task)\r\n"
+            + "redis.call(\"publish\", \"submittedTask\", \"\")"
+            + "redis.call(\"srem\", \"running\", task)\r\n"
+            + "end\r\n"
+            + "redis.call(\"del\", \"responsible:\"..@responsible)\r\n"
+            + "return tasks\r\n"
+            ;
+
+        private static readonly string _listTasksForResponsibleComponentScript =
+              "local tasks = redis.call(\"smembers\", \"responsible:\"..@responsible)\r\n"
+            + "return tasks\r\n"
+            ;
+
         private readonly Dictionary<string, LoadedLuaScript> _scripts = new Dictionary<string, LoadedLuaScript>();
 
         public void LoadScripts(IDatabase db, IServer srv)
         {
             var scripts = new Dictionary<string, string>
             {
-                { "pushWorkflow",        _pushWorkflowScript },
-                { "pushTask",            _pushTaskScript },
-                { "popTask",             _popTaskScript },
-                { "completeTask",        _completeTaskScript },
-                { "failTask",            _failTaskScript },
-                { "popFailedWorkflow",   _popFailedWorkflowScript },
-                { "popCompleteWorkflow", _popCompleteWorkflowScript },
-                { "getWorkflowId",       _getWorkflowIdScript },
-                { "getTaskId",           _getTaskIdScript },
-                { "cleanupWorkflow",     _cleanupWorkflowScript },
+                { "pushWorkflow",                      _pushWorkflowScript },
+                { "pushTask",                          _pushTaskScript },
+                { "popTask",                           _popTaskScript },
+                { "completeTask",                      _completeTaskScript },
+                { "failTask",                          _failTaskScript },
+                { "popFailedWorkflow",                 _popFailedWorkflowScript },
+                { "popCompleteWorkflow",               _popCompleteWorkflowScript },
+                { "getWorkflowId",                     _getWorkflowIdScript },
+                { "getTaskId",                         _getTaskIdScript },
+                { "cleanupWorkflow",                   _cleanupWorkflowScript },
+                { "listTasksForResponsibleComponent",  _listTasksForResponsibleComponentScript },
+                { "resetTasksForResponsibleComponent", _resetTasksForResponsibleComponentScript }
             };
 
             foreach (var scriptName in scripts.Keys)
@@ -205,6 +225,25 @@ namespace Redis.Workflow.Common
 
                 _scripts.Add(scriptName, prepped.Load(srv));
             }
+        }
+
+        public string[] ResubmitTasksFor(IDatabase db, string responsible, string timestamp)
+        {
+            var arguments = new { responsible = responsible, timestamp = timestamp };
+
+            string[] result = (string[])_scripts["resetTasksForResponsibleComponent"].Evaluate(db, arguments);
+
+            return result;
+        }
+
+
+        public string[] FindTasksFor(IDatabase db, string responsible)
+        {
+            var arguments = new { responsible = responsible };
+
+            string[] result = (string[])_scripts["listTasksForResponsibleComponent"].Evaluate(db, arguments);
+
+            return result;
         }
 
         public async System.Threading.Tasks.Task<long?> PushWorkflowAsync(IDatabase db, string workflowJson, string timestamp)
