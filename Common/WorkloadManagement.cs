@@ -15,7 +15,7 @@ namespace Redis.Workflow.Common
             _sub.UnsubscribeAll();
         }
 
-        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, Behaviours behaviours = Behaviours.Processor | Behaviours.Submitter)
+        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, Behaviours behaviours = Behaviours.Processor | Behaviours.Submitter)
         {
             _taskHandler = taskHandler;
 
@@ -43,6 +43,8 @@ namespace Redis.Workflow.Common
 
             _lua = new Lua();
             _lua.LoadScripts(_db, mux.GetServer("localhost:6379"));
+
+            _identifier = identifier;
         }
 
         private string ProcessNextFailedWorkflow()
@@ -117,6 +119,11 @@ namespace Redis.Workflow.Common
             while (ProcessNextTask() != null) { }
         }
 
+        private string Identifier
+        {
+            get { return _identifier; }
+        }
+
         private string ProcessNextTask()
         {
             var task = PopTask();
@@ -137,7 +144,7 @@ namespace Redis.Workflow.Common
 
         private string PopTask()
         {
-            return _lua.PopTask(_db, Timestamp());
+            return _lua.PopTask(_db, Timestamp(), Identifier);
         }
 
         private static string Timestamp()
@@ -190,7 +197,7 @@ namespace Redis.Workflow.Common
 
         private void CompleteTask(string task)
         {
-            _lua.CompleteTask(_db, task, Timestamp());
+            _lua.CompleteTask(_db, task, Timestamp(), Identifier);
 
             Console.WriteLine("completed: " + task);
         }
@@ -204,6 +211,8 @@ namespace Redis.Workflow.Common
         private readonly ISubscriber _sub;
 
         private readonly Lua _lua;
+
+        private readonly string _identifier;
 
         private readonly object _turnstile = new object();
     }

@@ -125,7 +125,7 @@ namespace Redis.Workflow.Common
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
             wh.WorkflowFailed += (s, w) => { events.Add("failed"); failed.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
             {
                 var workflowName = "TestWorkflow";
 
@@ -196,7 +196,7 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
             {
                 var workflowName = "TestWorkflow";
 
@@ -235,7 +235,7 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
             {
                 var workflowName = "TestWorkflow";
 
@@ -295,7 +295,7 @@ namespace Redis.Workflow.Common
             wh.WorkflowComplete += (s, w) => { complete.Set(); };
             wh.WorkflowFailed += (s, w) => { failed.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
             {
                 var workflowName = "TestWorkflow";
 
@@ -332,7 +332,7 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
             {
                 var workflowName = "TestWorkflow";
 

@@ -86,6 +86,7 @@ namespace Redis.Workflow.Common
                 + "end\r\n"
                 + "end\r\n"
                 + "redis.call(\"hset\", \"task:\" .. @taskId, \"complete\", @timestamp)\r\n"
+                + "redis.call(\"srem\", \"responsible:\"..@responsible, @taskId)\r\n"
                 + "redis.call(\"sadd\", \"complete\", @taskId)\r\n"
                 + "local workflow = redis.call(\"hget\", \"task:\"..@taskId, \"workflow\")\r\n"
                 + "local remaining = redis.call(\"decr\", \"remaining:\"..workflow)\r\n"
@@ -130,6 +131,8 @@ namespace Redis.Workflow.Common
                 + "if task then\r\n"
                 + "redis.call(\"sadd\", \"running\", task)\r\n"
                 + "redis.call(\"hset\", \"task:\" .. task, \"running\", @timestamp)"
+                + "redis.call(\"hset\", \"task:\" .. task, \"lastKnownResponsible\", @responsible)"
+                + "redis.call(\"sadd\", \"responsible:\"..@responsible, task)\r\n"
                 + "return task\r\n"
                 + "else\r\n"
                 + "return ''\r\n"
@@ -231,9 +234,9 @@ namespace Redis.Workflow.Common
         /// <param name="db"></param>
         /// <param name="task"></param>
         /// <param name="timestamp"></param>
-        public void CompleteTask(IDatabase db, string task, string timestamp)
+        public void CompleteTask(IDatabase db, string task, string timestamp, string responsible)
         {
-            var arguments = new { taskId = task, timestamp = timestamp };
+            var arguments = new { taskId = task, timestamp = timestamp, responsible = responsible };
 
             _scripts["completeTask"].Evaluate(db, arguments);
         }
@@ -252,9 +255,9 @@ namespace Redis.Workflow.Common
             return (string.IsNullOrEmpty(result.ToString())) ? null : result.ToString();
         }
 
-        public string PopTask(IDatabase db, string timestamp)
+        public string PopTask(IDatabase db, string timestamp, string responsible)
         {
-            var arguments = new { timestamp = timestamp };
+            var arguments = new { timestamp = timestamp, responsible = responsible };
 
             var result = _scripts["popTask"].Evaluate(db, arguments);
 

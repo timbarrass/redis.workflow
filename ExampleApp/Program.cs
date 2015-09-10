@@ -40,7 +40,7 @@ namespace Redis.Workflow.ExampleApp
             var failed = new ManualResetEvent(false);
             wh.WorkflowComplete += (s, w) => { Console.WriteLine("workflow complete: " + w); complete.Set(); };
             wh.WorkflowFailed += (s, w) => { Console.WriteLine("workflow failed: " + w); failed.Set(); };
-            var wm = new WorkflowManagement(ConnectionMultiplexer.Connect("localhost"), th, wh);
+            var wm = new WorkflowManagement(ConnectionMultiplexer.Connect("localhost"), th, wh, "sampleApp");
 
             wm.ClearBacklog();
 
