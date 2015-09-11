@@ -126,14 +126,12 @@ namespace Redis.Workflow.Common
 
         private string ProcessNextTask()
         {
-            var task = PopTask();
+            var taskData = PopTask();
 
-            if (task == null) return null;
+            if (taskData == null) return null;
 
-            // TODO: suspect race here, as we could pop the task then someone could cleanup.
-            // Consider grabbing task id and payload together
-            // Consider Lua/checking to see if task exists before grabbing payload -- but what to do if it doesn't?
-            var payload = _db.HashGet("task:" + task, "payload");
+            var task = taskData[0];
+            var payload = taskData[1];
 
             var rh = new SimpleResultHandler(task, CompleteTask, FailTask);
 
@@ -142,7 +140,7 @@ namespace Redis.Workflow.Common
             return task;
         }
 
-        private string PopTask()
+        private string[] PopTask()
         {
             return _lua.PopTask(_db, Timestamp(), Identifier);
         }

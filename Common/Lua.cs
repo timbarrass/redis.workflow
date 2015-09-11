@@ -128,16 +128,21 @@ namespace Redis.Workflow.Common
                 ;
 
         private static readonly string _popTaskScript =
-                  "local task = redis.call(\"rpop\", \"submitted\")\r\n"
+                  "local ret = { }\r\n"
+                + "local task = redis.call(\"rpop\", \"submitted\")\r\n"
                 + "if task then\r\n"
                 + "redis.call(\"sadd\", \"running\", task)\r\n"
                 + "redis.call(\"hset\", \"task:\" .. task, \"running\", @timestamp)"
                 + "redis.call(\"hset\", \"task:\" .. task, \"lastKnownResponsible\", @responsible)"
                 + "redis.call(\"sadd\", \"responsible:\"..@responsible, task)\r\n"
-                + "return task\r\n"
+                + "ret[1] = task\r\n"
+                + "ret[2] = redis.call(\"hget\", \"task:\"..task, \"payload\")\r\n"
                 + "else\r\n"
-                + "return ''\r\n"
-                + "end";
+                + "ret[1] = ''\r\n"
+                + "ret[2] = ''\r\n"
+                + "end\r\n"
+                + "return ret"
+                ;
 
         private static readonly string _getWorkflowIdScript =
                   "local count = redis.call(\"llen\", \"workflowIds\")\r\n"
@@ -305,13 +310,15 @@ namespace Redis.Workflow.Common
             return (string.IsNullOrEmpty(result.ToString())) ? null : result.ToString();
         }
 
-        public string PopTask(IDatabase db, string timestamp, string responsible)
+        public string[] PopTask(IDatabase db, string timestamp, string responsible)
         {
             var arguments = new { timestamp = timestamp, responsible = responsible };
 
-            var result = _scripts["popTask"].Evaluate(db, arguments);
+            var result = (string[])_scripts["popTask"].Evaluate(db, arguments);
 
-            return (string.IsNullOrEmpty(result.ToString())) ? null : result.ToString();
+
+
+            return (string.IsNullOrEmpty(result[0].ToString())) ? null : result;
         }
 
         /// <summary>
