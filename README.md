@@ -69,7 +69,8 @@ This is a simple example application that configures a workflow containing 4 tas
 
             WaitHandle.WaitAny(new[] { failed, complete });
 
-            // When a workflow is complete, it falls to us
+            // When a workflow is complete its down to the client to trigger a cleanup (until backstop
+            // cleanup is implemented). This is to make sure you have time to fetch any details stored.
             wm.CleanUp(id.ToString());
 
             Console.ReadLine();
