@@ -5,6 +5,24 @@ using StackExchange.Redis;
 
 namespace Redis.Workflow.Common
 {
+    public class TaskDetails
+    {
+        public string name { get; set; }
+        public string running { get; set; }
+        public string workflow { get; set; }
+        public string payload { get; set; }
+        public string id { get; set; }
+        public string lastKnownResponsible { get; set; }
+        public string submitted { get; set; }
+        public string complete { get; set; }
+    }
+
+    public class WorkflowDetails
+    {
+        public string Id { get; set; }
+        public List<TaskDetails> Tasks { get; set; }
+    }
+
     public class WorkflowManagement : IDisposable
     {
         public void Dispose()
@@ -89,6 +107,14 @@ namespace Redis.Workflow.Common
             return _lua.PopCompleteWorkflow(_db);
         }
 
+        public WorkflowDetails FetchWorkflowInformation(string workflowId)
+        {
+            var json = _lua.FetchWorkflowInformation(_db, workflowId);
+
+            var deserialized = Newtonsoft.Json.JsonConvert.DeserializeObject<WorkflowDetails>(json);
+
+            return deserialized;
+        }
 
         private void ProcessWorkflow(string workflowId)
         {

@@ -8,6 +8,32 @@ namespace Redis.Workflow.Common
     [TestClass]
     public class RedisTests 
     {
+        [TestMethod]
+        public void CreateJSon()
+        {
+            var mux = ConnectionMultiplexer.Connect("localhost");
+
+            var db = mux.GetDatabase();
+
+            db.HashSet("task", new HashEntry[] { new HashEntry("key1", "value1"), new HashEntry("key2", "value2") });
+
+            var script =
+                  "local allResults = { }\r\n"
+                + "local task = \"task\"\r\n"
+                + "local taskDetails = redis.call(\"hgetall\", task)\r\n"
+                + "local result = { }\r\n"
+                + "for idx = 1, #taskDetails, 2 do\r\n"
+                + "result[taskDetails[idx]] = taskDetails[idx + 1]\r\n"
+                + "end\r\n"
+                + "allResults[task] = result\r\n"
+                + "return cjson.encode(allResults)"
+                ;
+
+            var result = db.ScriptEvaluate(script);
+
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+        }
+
         [TestMethod, Ignore]
         public void ScriptReload()
         {

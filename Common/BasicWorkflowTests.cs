@@ -279,6 +279,11 @@ namespace Redis.Workflow.Common
 
                 var result = complete.WaitOne(2000); // machine-performance dependent, but 2 seconds is a long time
 
+                var info = wm.FetchWorkflowInformation(workflowId.ToString());
+
+                Assert.AreEqual("1", info.Id);
+                Assert.AreEqual(6, info.Tasks.Count);
+
                 wm.CleanUp(workflowId.ToString());
 
                 db = _mux.GetDatabase();

@@ -204,6 +204,29 @@ namespace Redis.Workflow.Common
             + "return tasks\r\n"
             ;
 
+        private static readonly string _fetchWorkflowInformation =
+              "local allResults = {}\r\n"
+            + "local taskCSV = redis.call(\"hget\", \"workflow:\"..@workflowId, \"tasks\")\r\n"
+            + "local tokens = {}\r\n"
+            + "for w in string.gmatch(taskCSV, \"(%d+)\" ) do\r\n"
+            + "tokens[#tokens+1] = w\r\n"
+            + "end\r\n"
+            + "for i = 1, #tokens do\r\n"
+            + "local task = tokens[i]\r\n"
+            + "local taskDetails = redis.call(\"hgetall\", \"task:\"..task)\r\n"
+            + "local result = { }\r\n"
+            + "for idx = 1, #taskDetails, 2 do\r\n"
+            + "result[taskDetails[idx]] = taskDetails[idx + 1]\r\n"
+            + "end\r\n"
+            + "result[\"id\"] = task\r\n"
+            + "allResults[#allResults + 1] = result\r\n"
+            + "end\r\n"
+            + "local finalResult = {}\r\n"
+            + "finalResult[\"id\"] = @workflowId\r\n"
+            + "finalResult[\"tasks\"] = allResults\r\n"
+            + "return cjson.encode(finalResult)"
+            ;
+
         private readonly Dictionary<string, LoadedLuaScript> _scripts = new Dictionary<string, LoadedLuaScript>();
 
         public void LoadScripts(IDatabase db, IServer srv)
@@ -221,7 +244,8 @@ namespace Redis.Workflow.Common
                 { "getTaskId",                         _getTaskIdScript },
                 { "cleanupWorkflow",                   _cleanupWorkflowScript },
                 { "listTasksForResponsibleComponent",  _listTasksForResponsibleComponentScript },
-                { "resetTasksForResponsibleComponent", _resetTasksForResponsibleComponentScript }
+                { "resetTasksForResponsibleComponent", _resetTasksForResponsibleComponentScript },
+                { "fetchWorkflowInformation",          _fetchWorkflowInformation },
             };
 
             foreach (var scriptName in scripts.Keys)
@@ -230,6 +254,15 @@ namespace Redis.Workflow.Common
 
                 _scripts.Add(scriptName, prepped.Load(srv));
             }
+        }
+
+        public string FetchWorkflowInformation(IDatabase db, string workflowId)
+        {
+            var arguments = new { workflowId = workflowId };
+
+            string result = (string)_scripts["fetchWorkflowInformation"].Evaluate(db, arguments);
+
+            return result;
         }
 
         public string[] ResubmitTasksFor(IDatabase db, string responsible, string timestamp)
@@ -284,11 +317,6 @@ namespace Redis.Workflow.Common
             _scripts["failTask"].Evaluate(db, arguments);
         }
 
-        /// <summary>
-        /// </summary>
-        /// <param name="db"></param>
-        /// <param name="task"></param>
-        /// <param name="timestamp"></param>
         public void CompleteTask(IDatabase db, string task, string timestamp, string responsible)
         {
             var arguments = new { taskId = task, timestamp = timestamp, responsible = responsible };
