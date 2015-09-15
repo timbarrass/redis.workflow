@@ -52,6 +52,8 @@
     <Compile Include="Direct.cs" />
     <Compile Include="IResultHandler.cs" />
     <Compile Include="ITaskHandler.cs" />
+    <Compile Include="TaskDetails.cs" />
+    <Compile Include="WorkflowDetails.cs" />
     <Compile Include="WorkflowHandler.cs" />
     <Compile Include="Lua.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
