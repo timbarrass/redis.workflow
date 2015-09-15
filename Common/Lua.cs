@@ -1,6 +1,5 @@
 ﻿using StackExchange.Redis;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace Redis.Workflow.Common
 {
@@ -186,6 +185,11 @@ namespace Redis.Workflow.Common
                 + "redis.call(\"del\", \"workflow:\"..@workflowId)"
                 ;
 
+        // Here it'll just remove any running tasks from the running set. Might think that they actually
+        // need to get transitioned to abandoned, so that whichever component that's running them won't
+        // hit an exception when it completes the task. However -- core assumption is that this is only
+        // called by the component that started running the tasks, and that that component has died and
+        // calls this on restart.
         private static readonly string _resetTasksForResponsibleComponentScript =
               "local tasks = redis.call(\"smembers\", \"responsible:\"..@responsible)\r\n"
             + "for key, task in next,tasks,nil do\r\n"

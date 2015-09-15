@@ -11,6 +11,8 @@ namespace Redis.Workflow.Common
 
         Processor = 1 << 1,
 
-        All = Submitter | Processor,
+        AutoRestart = 1 << 2,
+
+        All = Submitter | Processor | AutoRestart,
     }
 }

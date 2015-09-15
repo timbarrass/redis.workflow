@@ -488,40 +488,39 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            var wm = new WorkflowManagement(_mux, th, wh, "test");
 
-                var workflowName = "TestWorkflow";
+            var workflowName = "TestWorkflow";
 
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                tasks.Add(new Task { Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-                tasks.Add(new Task { Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            var tasks = new List<Task>();
+            tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
 
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+            var workflow = new Workflow { Name = workflowName, Tasks = tasks };
 
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            {
                 wm.PushWorkflow(workflow);
 
+                // we've picked up the first task, and don't want to pick up any more
                 th.Gate.WaitOne();
 
-                // we've picked up the first task, and don't want to pick up any more
-                wm.Dispose();
+                Assert.AreEqual(0, db.ListLength("submitted"));
+            }
 
-                // create a new wm to simulate a restart of a component
-                using (var wm2 = new WorkflowManagement(_mux, th2, wh, "test"))
-                {
-                    var myTasks = wm2.ResubmitTasks();
+            // create a new wm to simulate a restart of a component
+            using (var wm2 = new WorkflowManagement(_mux, th2, wh, "test"))
+            {
+                Assert.AreEqual(1, db.ListLength("submitted"));
 
-                    Assert.AreEqual(1, myTasks.Length);
-                    Assert.AreEqual("1", myTasks[0]);
+                th.Abort.Set();
+                th2.LetRun.Set();
 
-                    th.Abort.Set();
-                    th2.LetRun.Set();
-
-                    complete.WaitOne();
-                }
+                complete.WaitOne();
+            }
 
             // assert
             db.ScriptEvaluate("redis.call(\"flushdb\")");

@@ -33,7 +33,7 @@ namespace Redis.Workflow.Common
             _sub.UnsubscribeAll();
         }
 
-        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, Behaviours behaviours = Behaviours.Processor | Behaviours.Submitter)
+        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, Behaviours behaviours = Behaviours.All)
         {
             _taskHandler = taskHandler;
 
@@ -63,6 +63,16 @@ namespace Redis.Workflow.Common
             _lua.LoadScripts(_db, mux.GetServer("localhost:6379"));
 
             _identifier = identifier;
+
+            if (behaviours.HasFlag(Behaviours.AutoRestart))
+            {
+                var resubmittedTasks = ResubmitTasks();
+
+                foreach (var item in resubmittedTasks)
+                {
+                    Console.WriteLine("Resubmitted {0}", item);
+                }
+            }
         }
 
         private string ProcessNextFailedWorkflow()
