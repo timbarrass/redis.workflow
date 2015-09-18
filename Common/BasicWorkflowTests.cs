@@ -12,7 +12,7 @@ namespace Redis.Workflow.Common
 
         public ManualResetEvent LetRun = new ManualResetEvent(false);
 
-        public ManualResetEvent Gate = new ManualResetEvent(false);
+        public AutoResetEvent Gate = new AutoResetEvent(false);
 
         public ManualResetEvent Abort = new ManualResetEvent(false);
 
@@ -27,7 +27,7 @@ namespace Redis.Workflow.Common
         {
             Gate.Set();
 
-            var result = WaitHandle.WaitAny(new[] { Abort, LetRun });
+            var result = WaitHandle.WaitAny(new WaitHandle[] { Abort, LetRun });
 
             switch(result)
             {
@@ -238,11 +238,12 @@ namespace Redis.Workflow.Common
 
                 wm.PushWorkflow(workflow);
 
-                var result = complete.WaitOne(2000);
+                var workflowWasCompleted = complete.WaitOne(2000);
+
+                Assert.IsTrue(workflowWasCompleted);
 
                 Console.WriteLine("WM events"); foreach (var ev in events) Console.WriteLine("Event: " + ev);
 
-                Assert.IsTrue(result);
                 Assert.AreEqual(6, th.TaskRunCount);
             }
         }
@@ -277,7 +278,9 @@ namespace Redis.Workflow.Common
 
                 var workflowId = wm.PushWorkflow(workflow);
 
-                var result = complete.WaitOne(2000); // machine-performance dependent, but 2 seconds is a long time
+                var workflowCompleted = complete.WaitOne(2000); // machine-performance dependent, but 2 seconds is a long time
+
+                Assert.IsTrue(workflowCompleted);
 
                 var info = wm.FetchWorkflowInformation(workflowId.ToString());
 
@@ -304,6 +307,8 @@ namespace Redis.Workflow.Common
                 Assert.IsFalse(db.KeyExists("workflow-tasks-1"));
                 Assert.IsFalse(db.KeyExists("workflow-remaining-1"));
                 Assert.IsFalse(db.SetContains("workflows", "1"));
+                Assert.IsFalse(db.KeyExists("submitted:1"));
+                Assert.IsFalse(db.KeyExists("running:1"));
             }
         }
 
@@ -381,7 +386,6 @@ namespace Redis.Workflow.Common
                 wm.PushWorkflow(workflow);
             }
 
-            // assert
             db.ScriptEvaluate("redis.call(\"flushdb\")");
         }
 
@@ -421,7 +425,6 @@ namespace Redis.Workflow.Common
                 id.Wait();
             }
 
-            // assert
             db.ScriptEvaluate("redis.call(\"flushdb\")");
         }
 
@@ -447,27 +450,21 @@ namespace Redis.Workflow.Common
 
                 var tasks = new List<Task>();
                 tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                tasks.Add(new Task { Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-                tasks.Add(new Task { Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
 
                 var workflow = new Workflow { Name = workflowName, Tasks = tasks };
 
                 wm.PushWorkflow(workflow);
 
+                var taskWasStarted = th.Gate.WaitOne(2000);
+
+                Assert.IsTrue(taskWasStarted);
+
                 var myTasks = wm.FindTasks();
 
                 Assert.AreEqual(1, myTasks.Length);
                 Assert.AreEqual("1", myTasks[0]);
-
-                th.LetRun.Set();
-
-                complete.WaitOne();
             }
 
-            // assert
             db.ScriptEvaluate("redis.call(\"flushdb\")");
         }
 
@@ -522,11 +519,143 @@ namespace Redis.Workflow.Common
                 complete.WaitOne();
             }
 
-            // assert
             db.ScriptEvaluate("redis.call(\"flushdb\")");
         }
 
+        [TestMethod]
+        public void CanPauseAWorkflow()
+        {
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"CanPauseAWorkflow\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
 
+            var th = new BlockingTaskHandler("1");
+
+            var complete = new ManualResetEvent(false);
+
+            var events = new List<string>();
+
+            var wh = new WorkflowHandler();
+            wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
+
+            var workflowName = "TestWorkflow";
+
+            var tasks = new List<Task>();
+            tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode2", Payload = "Node2", Parents = new string[] { }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+
+            var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            {
+                var workflowId = wm.PushWorkflow(workflow);
+
+                th.Gate.WaitOne();
+
+                Assert.AreEqual(1, db.ListLength("submitted"));
+                Assert.AreEqual(1, db.SetLength("running"));
+
+                wm.PauseWorkflow(workflowId);
+
+                var expected = new List<string> { "1", "2" };
+                var state = "paused";
+
+                CheckSetContent(db, expected, state);
+
+                // The running task will run bang into the new state
+                th.LetRun.Set();
+
+                Thread.Sleep(500); // gah, honestly. I won't get a signal because no new tasks should be submitted
+
+                expected = new List<string> { "2" };
+                state = "paused";
+
+                CheckSetContent(db, expected, state);
+
+                expected = new List<string> { "2" };
+                state = "running";
+
+                CheckSetContent(db, expected, state, false);
+
+                // If this is checked before the task has completed then there'll be two paused tasks
+                // We've got no hook into the completion event as yet
+                Assert.AreEqual(1, db.SetLength("paused")); 
+                Assert.AreEqual(1, db.SetLength("paused:1"));
+                Assert.AreEqual(0, db.ListLength("submitted"));
+                Assert.AreEqual(0, db.SetLength("running"));
+            }
+
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+        }
+
+        [TestMethod]
+        public void CanReleaseAWorkflow()
+        {
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"CanPauseAWorkflow\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+
+            var th = new BlockingTaskHandler("1");
+
+            var complete = new ManualResetEvent(false);
+
+            var events = new List<string>();
+
+            var wh = new WorkflowHandler();
+            wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
+
+            var workflowName = "TestWorkflow";
+
+            var tasks = new List<Task>();
+            tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode2", Payload = "Node2", Parents = new string[] { }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+
+            var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            {
+                var workflowId = wm.PushWorkflow(workflow);
+
+                th.Gate.WaitOne();
+
+                wm.PauseWorkflow(workflowId);
+
+                wm.ReleaseWorkflow(workflowId);
+
+                Assert.AreEqual(1, db.ListLength("submitted"));
+                Assert.AreEqual(1, db.SetLength("running"));
+            }
+
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+        }
+
+        private static void CheckSetContent(IDatabase db, List<string> expected, string state, bool condition = true)
+        {
+            var toRequeue = new List<string>();
+            while (db.SetLength(state) != 0)
+            {
+                toRequeue.Add(db.SetPop(state));
+            }
+            foreach (var item in expected)
+            {
+                if(condition)
+                    Assert.IsTrue(toRequeue.Contains(item));
+                else
+                    Assert.IsFalse(toRequeue.Contains(item));
+            }
+            foreach (var temp in toRequeue)
+            {
+                db.SetAdd(state, temp);
+            }
+        }
 
         private readonly ConnectionMultiplexer _mux;
     }

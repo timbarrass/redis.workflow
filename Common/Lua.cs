@@ -1,5 +1,6 @@
 ﻿using StackExchange.Redis;
 using System.Collections.Generic;
+using System;
 
 namespace Redis.Workflow.Common
 {
@@ -33,7 +34,9 @@ namespace Redis.Workflow.Common
             + "end\r\n"
             + "if parentCount == 0 then\r\n"
             + "redis.call(\"hset\", \"task:\" .. taskId, \"submitted\", @timestamp)\r\n"
+            + "redis.call(\"hset\", \"task:\" .. taskId, \"previousState\", \"none\")\r\n"
             + "redis.call(\"lpush\", \"submitted\", taskId)\r\n"
+            + "redis.call(\"sadd\", \"submitted:\"..workflowId, taskId)\r\n"
             + "redis.call(\"publish\", \"submittedTask\", \"\")"
             + "end\r\n"
             + "for key2, childName in next,value[\"Children\"],nil do\r\n"
@@ -53,7 +56,10 @@ namespace Redis.Workflow.Common
 
         private static readonly string _pushTaskScript =
               "redis.call(\"hset\", \"task:\" .. @taskId, \"submitted\", @timestamp)\r\n"
+            + "redis.call(\"hset\", \"task:\" .. taskId, \"previousState\", \"none\")\r\n"
             + "redis.call(\"lpush\", \"submitted\", @taskId)\r\n"
+            + "local workflowId = redis.call(\"hget\", \"task:\"..@taskId, \"workflow\")\r\n"
+            + "redis.call(\"sadd\", \"submitted:\"..workflowId, taskId)\r\n"
             + "redis.call(\"publish\", \"submittedTask\", \"\")"
             ;
 
@@ -68,43 +74,62 @@ namespace Redis.Workflow.Common
                 + "end\r\n"
                 + "end\r\n"
                 + "redis.call(\"hset\", \"task:\" .. @taskId, \"failed\", \"@timestamp\")\r\n"
+                + "redis.call(\"hset\", \"task:\" .. @taskId, \"previousState\", \"running\")\r\n"
                 + "redis.call(\"sadd\", \"failed\", @taskId)\r\n"
                 + "local workflow = redis.call(\"hget\", \"task:\"..@taskId, \"workflow\")\r\n"
+                + "redis.call(\"srem\", \"running:\"..workflow, @taskId)\r\n"
                 + "local remaining = redis.call(\"decr\", \"remaining:\"..workflow)\r\n"
                 + "redis.call(\"lpush\", \"workflowFailed\", workflow)\r\n"
                 + "redis.call(\"publish\", \"workflowFailed\", \"\")\r\n"
                 ;
 
         private static readonly string _completeTaskScript =
-                  "local runningCount = redis.call(\"srem\", \"running\", @taskId)\r\n"
+                  "local paused = ''\r\n"
+                + "local runningCount = redis.call(\"srem\", \"running\", @taskId)\r\n"
                 + "if runningCount == 0 then\r\n"
-                + "local abandonedCount = redis.call(\"srem\", \"abandoned\", @taskId)\r\n"
-                + "if abandonedCount ~= 0 then\r\n"
-                + "return\r\n"
-                + "else\r\n"
-                + "error(\"Completed task '\"..@taskId..\" but it doesn't seem to be in expected state (running, or abandoned)\")\r\n"
-                + "end\r\n"
-                + "end\r\n"
+                + "  local abandonedCount = redis.call(\"srem\", \"abandoned\", @taskId)\r\n"
+                + "  if abandonedCount ~= 0 then\r\n"
+                + "    return\r\n"
+                + "  else\r\n"
+                + "    paused = redis.call(\"srem\", \"paused\", @taskId)\r\n"
+                + "    if paused ~= 1 then\r\n"
+                + "      error(\"Completed task '\"..@taskId..\" but it doesn't seem to be in expected state (running, or abandoned, or paused)\")\r\n"
+                + "    end\r\n"
+                + "  end\r\n"
+                + "end\r\n"                
                 + "redis.call(\"hset\", \"task:\" .. @taskId, \"complete\", @timestamp)\r\n"
+                + "redis.call(\"hset\", \"task:\" .. @taskId, \"previousState\", \"running\")\r\n"
                 + "redis.call(\"srem\", \"responsible:\"..@responsible, @taskId)\r\n"
                 + "redis.call(\"sadd\", \"complete\", @taskId)\r\n"
                 + "local workflow = redis.call(\"hget\", \"task:\"..@taskId, \"workflow\")\r\n"
+                + "redis.call(\"srem\", \"paused:\"..workflow, @taskId)\r\n"
+                + "redis.call(\"srem\", \"running:\"..workflow, @taskId)\r\n"
                 + "local remaining = redis.call(\"decr\", \"remaining:\"..workflow)\r\n"
                 + "if remaining == 0 then\r\n"
-                + "redis.call(\"lpush\", \"workflowComplete\", workflow)\r\n"
-                + "redis.call(\"publish\", \"workflowComplete\", \"\")\r\n"
-                + "return\r\n"
+                + "  redis.call(\"lpush\", \"workflowComplete\", workflow)\r\n"
+                + "  redis.call(\"publish\", \"workflowComplete\", \"\")\r\n"
+                + "  return\r\n"
                 + "end\r\n"
                 + "local child = redis.call(\"rpop\", \"children:\"..@taskId)\r\n"
                 + "while child do\r\n"
-                + "redis.call(\"srem\", \"parents:\" .. child, @taskId)\r\n"
-                + "local parentCount = redis.call(\"scard\", \"parents:\"..child)\r\n"
-                + "if parentCount == 0 then\r\n"
-                + "redis.call(\"hset\", \"task:\"..child, \"submitted\", @timestamp)\r\n"
-                + "redis.call(\"lpush\", \"submitted\", child)\r\n"
-                + "redis.call(\"publish\", \"submittedTask\", \"\")\r\n"
-                + "end\r\n"
-                + "child = redis.call(\"rpop\", \"children:\"..@taskId)\r\n"
+                + "  redis.call(\"srem\", \"parents:\" .. child, @taskId)\r\n"
+                + "  local parentCount = redis.call(\"scard\", \"parents:\"..child)\r\n"
+                + "  if parentCount == 0 then\r\n"
+                + "    if paused == 1 then\r\n"
+                + "      print(\"not submitting \"..child)\r\n"
+                + "      redis.call(\"hset\", \"task:\"..child, \"paused\", @timestamp)\r\n"
+                + "      redis.call(\"sadd\", \"paused\", child)\r\n"
+                + "      redis.call(\"sadd\", \"paused:\"..workflow, child)\r\n"
+                + "    else\r\n"
+                + "      print(\"submitting \"..child)\r\n"
+                + "      redis.call(\"hset\", \"task:\"..child, \"submitted\", @timestamp)\r\n"
+                + "      redis.call(\"hset\", \"task:\" .. @taskId, \"previousState\", \"none\")\r\n"
+                + "      redis.call(\"lpush\", \"submitted\", child)\r\n"
+                + "      redis.call(\"sadd\", \"submitted:\"..workflow, child)\r\n"
+                + "      redis.call(\"publish\", \"submittedTask\", \"\")\r\n"
+                + "    end\r\n"
+                + "    child = redis.call(\"rpop\", \"children:\"..@taskId)\r\n"
+                + "  end\r\n"
                 + "end"
                 ;
 
@@ -132,8 +157,12 @@ namespace Redis.Workflow.Common
                 + "if task then\r\n"
                 + "redis.call(\"sadd\", \"running\", task)\r\n"
                 + "redis.call(\"hset\", \"task:\" .. task, \"running\", @timestamp)"
+                + "redis.call(\"hset\", \"task:\" .. task, \"previousState\", \"submitted\")\r\n"
                 + "redis.call(\"hset\", \"task:\" .. task, \"lastKnownResponsible\", @responsible)"
                 + "redis.call(\"sadd\", \"responsible:\"..@responsible, task)\r\n"
+                + "local workflow = redis.call(\"hget\", \"task:\"..task, \"workflow\")\r\n"
+                + "redis.call(\"srem\", \"submitted:\"..workflow, task)\r\n"
+                + "redis.call(\"sadd\", \"running:\"..workflow, task)\r\n"
                 + "ret[1] = task\r\n"
                 + "ret[2] = redis.call(\"hget\", \"task:\"..task, \"payload\")\r\n"
                 + "else\r\n"
@@ -181,6 +210,7 @@ namespace Redis.Workflow.Common
                 + "redis.call(\"lrem\", \"workflowFailed\", 1, @workflowId)\r\n"
                 + "redis.call(\"del\", \"tasks:\"..@workflowId)\r\n"
                 + "redis.call(\"del\", \"remaining:\"..@workflowId)\r\n"
+                + "redis.call(\"del\", \"submitted:\"..@workflowId)\r\n"
                 + "redis.call(\"srem\", \"workflows\", @workflowId)\r\n"
                 + "redis.call(\"del\", \"workflow:\"..@workflowId)"
                 ;
@@ -196,8 +226,12 @@ namespace Redis.Workflow.Common
             + "print(\"key \"..key..\" value \"..task)"
             + "redis.call(\"hset\", \"task:\" .. task, \"submitted\", @timestamp)\r\n"
             + "redis.call(\"lpush\", \"submitted\", task)\r\n"
-            + "redis.call(\"publish\", \"submittedTask\", \"\")"
+            + "local workflow = redis.call(\"hget\", \"task:\"..task, \"workflow\")\r\n"
+            + "redis.call(\"sadd\", \"submitted:\"..workflow, task)\r\n"
+            + "redis.call(\"srem\", \"running:\"..workflow, task)\r\n"
             + "redis.call(\"srem\", \"running\", task)\r\n"
+            + "redis.call(\"publish\", \"submittedTask\", \"\")"
+            + "redis.call(\"hset\", \"task:\" .. task, \"previousState\", \"none\")\r\n"
             + "end\r\n"
             + "redis.call(\"del\", \"responsible:\"..@responsible)\r\n"
             + "return tasks\r\n"
@@ -208,7 +242,7 @@ namespace Redis.Workflow.Common
             + "return tasks\r\n"
             ;
 
-        private static readonly string _fetchWorkflowInformation =
+        private static readonly string _fetchWorkflowInformationScript =
               "local allResults = {}\r\n"
             + "local taskCSV = redis.call(\"hget\", \"workflow:\"..@workflowId, \"tasks\")\r\n"
             + "local tokens = {}\r\n"
@@ -231,6 +265,58 @@ namespace Redis.Workflow.Common
             + "return cjson.encode(finalResult)"
             ;
 
+        private string _pauseWorkflowScript =
+              // anything in the submitted state to paused
+              // anything in submitted:workflow to paused:workflow
+              // anything in running state to paused
+              "local tasks = redis.call(\"smembers\", \"submitted:\"..@workflowId)\r\n"
+            + "print(\"pausing submitted tasks for \"..@workflowId)\r\n"
+            + "for key, task in next,tasks,nil do\r\n"
+            + "redis.call(\"lrem\", \"submitted\", 1, task)\r\n"
+            + "redis.call(\"srem\", \"submitted:\"..@workflowId, task)\r\n"
+            + "redis.call(\"sadd\", \"paused\", task)\r\n"
+            + "redis.call(\"sadd\", \"paused:\"..@workflowId, task)\r\n"
+            + "redis.call(\"hset\", \"task:\"..task, \"paused\", @timestamp)\r\n"
+            + "redis.call(\"hset\", \"task:\" .. task, \"previousState\", \"submitted\")\r\n"
+            + "end\r\n"
+            + "local runningTasks = redis.call(\"smembers\", \"running:\"..@workflowId)\r\n"
+            + "print(\"pausing running tasks for \"..@workflowId)\r\n"
+            + "for key, task in next,runningTasks,nil do\r\n"
+            + "redis.call(\"srem\", \"running\", 1, task)\r\n"
+            + "redis.call(\"srem\", \"running:\"..@workflowId, task)\r\n"
+            + "redis.call(\"sadd\", \"paused\", task)\r\n"
+            + "redis.call(\"sadd\", \"paused:\"..@workflowId, task)\r\n"
+            + "redis.call(\"hset\", \"task:\"..task, \"paused\", @timestamp)\r\n"
+            + "redis.call(\"hset\", \"task:\" .. task, \"previousState\", \"running\")\r\n"
+            + "end\r\n"
+            ;
+
+        private static readonly string _releaseWorkflowScript =
+            // find tasks in paused state for this workflow
+            // determine their last state
+            // return to that state
+              "local pausedTasks = redis.call(\"smembers\", \"paused:\"..@workflowId)\r\n"
+            + "for key, task in next,pausedTasks,nil do\r\n"
+            + "  local previousState = redis.call(\"hget\", \"task:\"..task, \"previousState\")\r\n"
+            + "  if previousState == \"submitted\" then\r\n"
+            + "    print(\"submitting \"..task)\r\n"
+            + "    redis.call(\"hset\", \"task:\"..task, \"submitted\", @timestamp)\r\n"
+            + "    redis.call(\"hset\", \"task:\" .. task, \"previousState\", \"paused\")\r\n"
+            + "    redis.call(\"lpush\", \"submitted\", task)\r\n"
+            + "    redis.call(\"sadd\", \"submitted:\"..@workflowId, task)\r\n"
+            + "    redis.call(\"publish\", \"submittedTask\", \"\")\r\n"
+            + "  elseif previousState == \"running\" then\r\n"
+            + "    redis.call(\"hset\", \"task:\"..task, \"running\", @timestamp)\r\n"
+            + "    redis.call(\"hset\", \"task:\"..task, \"previousState\", \"paused\")\r\n"
+            + "    redis.call(\"sadd\", \"running\", task)\r\n"
+            + "    redis.call(\"sadd\", \"running:\"..@workflowId, task)\r\n"
+            + "  else\r\n"
+            + "    error(\"Attempted to release task '\"..task..\" but it's previous state was unexpected\")\r\n"
+            + "  end\r\n"
+            + "end\r\n"
+            + "redis.call(\"del\", \"paused:\"..@workflowId)\r\n"
+            ;
+
         private readonly Dictionary<string, LoadedLuaScript> _scripts = new Dictionary<string, LoadedLuaScript>();
 
         public void LoadScripts(IDatabase db, IServer srv)
@@ -249,7 +335,9 @@ namespace Redis.Workflow.Common
                 { "cleanupWorkflow",                   _cleanupWorkflowScript },
                 { "listTasksForResponsibleComponent",  _listTasksForResponsibleComponentScript },
                 { "resetTasksForResponsibleComponent", _resetTasksForResponsibleComponentScript },
-                { "fetchWorkflowInformation",          _fetchWorkflowInformation },
+                { "fetchWorkflowInformation",          _fetchWorkflowInformationScript },
+                { "pauseWorkflow",                     _pauseWorkflowScript },
+                { "releaseWorkflow",                   _releaseWorkflowScript },
             };
 
             foreach (var scriptName in scripts.Keys)
@@ -258,6 +346,20 @@ namespace Redis.Workflow.Common
 
                 _scripts.Add(scriptName, prepped.Load(srv));
             }
+        }
+
+        internal void ReleaseWorkflow(IDatabase db, string workflowId, string timestamp)
+        {
+            var arguments = new { workflowId = workflowId, timestamp = timestamp };
+
+            _scripts["releaseWorkflow"].Evaluate(db, arguments);
+        }
+
+        public void PauseWorkflow(IDatabase db, string workflowId, string timestamp)
+        {
+            var arguments = new { workflowId = workflowId, timestamp = timestamp };
+
+            _scripts["pauseWorkflow"].Evaluate(db, arguments);
         }
 
         public string FetchWorkflowInformation(IDatabase db, string workflowId)

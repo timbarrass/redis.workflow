@@ -185,6 +185,11 @@ namespace Redis.Workflow.Common
             return _lua.ResubmitTasksFor(_db, Identifier, Timestamp());
         }
 
+        internal void PauseWorkflow(long? workflowId)
+        {
+            _lua.PauseWorkflow(_db, workflowId.ToString(), Timestamp());
+        }
+
         /// <summary>
         /// Pushes an executable workflow into the system. Task Names are assumed to be unique; there's
         /// no checking of integrity and consistency of child-parent relationships (so no guarantee of transitive
@@ -239,6 +244,11 @@ namespace Redis.Workflow.Common
             Console.WriteLine("completed: " + task);
         }
 
+        public void ReleaseWorkflow(long? workflowId)
+        {
+            _lua.ReleaseWorkflow(_db, workflowId.ToString(), Timestamp());
+        }
+
         private readonly ITaskHandler _taskHandler;
 
         private readonly WorkflowHandler _workflowHandler;
@@ -252,5 +262,6 @@ namespace Redis.Workflow.Common
         private readonly string _identifier;
 
         private readonly object _turnstile = new object();
+
     }
 }
