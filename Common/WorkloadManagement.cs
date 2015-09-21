@@ -253,6 +253,20 @@ namespace Redis.Workflow.Common
         /// <returns>The handle used to identify this workflow instance</returns>
         public long? PushWorkflow(Workflow workflow)
         {
+            var rootParentCount = 0;
+            foreach(var task in workflow.Tasks)
+            {
+                if(task.Parents.Length == 0)
+                {
+                    rootParentCount++;
+                }
+            }
+
+            if(rootParentCount == 0)
+            {
+                throw new ArgumentException("A workflow must have at least one task with no parents.", "workflow");
+            }
+
             var json = workflow.ToJson();
 
             var workflowId = _lua.PushWorkflow(_db, json, Timestamp());

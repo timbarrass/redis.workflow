@@ -232,6 +232,78 @@ namespace Redis.Workflow.Common
         }
 
         [TestMethod]
+        public void HandlesDanglingChildReferences()
+        {
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"HandlesDanglingChildReferences\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+
+            var th = new BlockingTaskHandler();
+            th.LetRun.Set();
+
+            var complete = new ManualResetEvent(false);
+
+            var events = new List<string>();
+
+            var wh = new WorkflowHandler();
+            wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
+
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
+            {
+                var workflowName = "TestWorkflow";
+
+                var tasks = new List<Task>();
+                tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
+                
+                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+
+                wm.PushWorkflow(workflow);
+
+                var result = WaitHandle.WaitAny(new[] { complete }, 2000);
+
+                Assert.AreEqual(0, result);
+            }
+
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+        }
+
+        [TestMethod, ExpectedException(typeof(System.ArgumentException))]
+        public void ThrowsIfAWorkflowHasNoRootParents()
+        {
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"ThrowsIfAWorkflowHasNoRootParents\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+
+            var th = new BlockingTaskHandler();
+            th.LetRun.Set();
+
+            var complete = new ManualResetEvent(false);
+
+            var events = new List<string>();
+
+            var wh = new WorkflowHandler();
+            wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
+
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
+            {
+                var workflowName = "TestWorkflow";
+
+                var tasks = new List<Task>();
+                tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { "TestNode0" }, Children = new string[] { }, Workflow = workflowName });
+
+                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+
+                wm.PushWorkflow(workflow);
+
+                var result = WaitHandle.WaitAny(new[] { complete }, 2000);
+
+                Assert.AreEqual(0, result);
+            }
+
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+        }
+
+        [TestMethod]
         public void CanCleanUpAfterAFailedWorkflow()
         {
             var db = _mux.GetDatabase();
@@ -487,6 +559,10 @@ namespace Redis.Workflow.Common
                 var workflow = new Workflow { Name = workflowName, Tasks = tasks };
 
                 wm.PushWorkflow(workflow);
+
+                var result = WaitHandle.WaitAny(new[] { complete }, 2000);
+
+                Assert.AreEqual(0, result);
             }
 
             db.ScriptEvaluate("redis.call(\"flushdb\")");
