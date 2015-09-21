@@ -47,12 +47,15 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BadLua.cs" />
     <Compile Include="BasicWorkflowTests.cs" />
     <Compile Include="Behaviours.cs" />
     <Compile Include="Direct.cs" />
+    <Compile Include="ILua.cs" />
     <Compile Include="IResultHandler.cs" />
     <Compile Include="ITaskHandler.cs" />
     <Compile Include="TaskDetails.cs" />
+    <Compile Include="TestCase.cs" />
     <Compile Include="WorkflowDetails.cs" />
     <Compile Include="WorkflowHandler.cs" />
     <Compile Include="Lua.cs" />

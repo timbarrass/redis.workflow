@@ -1,10 +1,9 @@
 ﻿using StackExchange.Redis;
 using System.Collections.Generic;
-using System;
 
 namespace Redis.Workflow.Common
 {
-    internal class Lua
+    internal class Lua : ILua
     {
         private static readonly string _pushWorkflowScript =
               "local taskCount = 0\r\n"
@@ -348,7 +347,7 @@ namespace Redis.Workflow.Common
             }
         }
 
-        internal void ReleaseWorkflow(IDatabase db, string workflowId, string timestamp)
+        public void ReleaseWorkflow(IDatabase db, string workflowId, string timestamp)
         {
             var arguments = new { workflowId = workflowId, timestamp = timestamp };
 

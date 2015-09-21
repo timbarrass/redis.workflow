@@ -3,6 +3,7 @@ using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Redis.Workflow.Common
 {
@@ -134,6 +135,103 @@ namespace Redis.Workflow.Common
         }
 
         [TestMethod]
+        public void HandlesExceptionsFromBadLuaInASucceedingWorkflow()
+        {
+            var cases = new[] { TestCase.PopTask, TestCase.CompleteTask, TestCase.PopCompleteWorkflow };
+
+            foreach (var testCase in cases)
+            {
+                var lua = new BadLua(testCase);
+
+                var message = "HandlesExceptionsFromBadLuaInASucceedingWorkflow:" + testCase;
+
+                var db = _mux.GetDatabase();
+                db.ScriptEvaluate("print(\"" + message + "\")");
+                db.ScriptEvaluate("redis.call(\"flushdb\")");
+
+                var th = new TestTaskHandler();
+
+                var complete = new ManualResetEvent(false);
+                var failed = new ManualResetEvent(false);
+                var exception = new ManualResetEvent(false);
+
+                var events = new List<string>();
+
+                var wh = new WorkflowHandler();
+                wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
+                wh.WorkflowFailed += (s, w) => { events.Add("failed"); failed.Set(); };
+
+                EventHandler<Exception> eh = (s, e) => { events.Add(e.Message); exception.Set(); };
+
+                using (var wm = new WorkflowManagement(_mux, th, wh, "test", lua, eh, Behaviours.Processor | Behaviours.Submitter))
+                {
+                    var workflowName = "TestWorkflow";
+
+                    var tasks = new List<Task>();
+                    tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName }); // TODO what happens if we reference children that don't exist?
+
+                    var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+
+                    wm.PushWorkflow(workflow);
+
+                    var waitResult = WaitHandle.WaitAny(new[] { exception, failed, complete }, 2000);
+
+                    Assert.AreEqual(0, waitResult);
+                }
+            }
+        }
+
+        [TestMethod]
+        public void HandlesExceptionsFromBadLuaInAFailingWorkflow()
+        {
+            var cases = new[] { TestCase.FailTask, TestCase.PopFailedWorkflow };
+
+            foreach (var testCase in cases)
+            {
+                var lua = new BadLua(testCase);
+
+                var message = "HandlesExceptionsFromBadLuaInAFailingWorkflow:" + testCase;
+
+                var db = _mux.GetDatabase();
+                db.ScriptEvaluate("print(\"" + message + "\")");
+                db.ScriptEvaluate("redis.call(\"flushdb\")");
+
+                var th = new ErroringTestWithLongRunnerTaskHandler("Node4", "Node3");
+
+                var complete = new ManualResetEvent(false);
+                var failed = new ManualResetEvent(false);
+                var exception = new ManualResetEvent(false);
+
+                var events = new List<string>();
+
+                var wh = new WorkflowHandler();
+                wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
+                wh.WorkflowFailed += (s, w) => { events.Add("failed"); failed.Set(); };
+
+                EventHandler<Exception> eh = (s, e) => { events.Add(e.Message); exception.Set(); };
+
+                using (var wm = new WorkflowManagement(_mux, th, wh, "test", lua, eh, Behaviours.Processor | Behaviours.Submitter))
+                {
+                    var workflowName = "TestWorkflow";
+
+                    var tasks = new List<Task>();
+                    tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
+                    tasks.Add(new Task { Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4" }, Workflow = workflowName });
+                    tasks.Add(new Task { Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+                    tasks.Add(new Task { Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+
+                    var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+
+                    wm.PushWorkflow(workflow);
+
+                    var waitResult = WaitHandle.WaitAny(new[] { exception, failed, complete }, 2000);
+
+                    Assert.AreEqual(0, waitResult);
+                }
+            }
+        }
+
+        [TestMethod]
         public void CanCleanUpAfterAFailedWorkflow()
         {
             var db = _mux.GetDatabase();
@@ -144,6 +242,7 @@ namespace Redis.Workflow.Common
 
             var complete = new ManualResetEvent(false);
             var failed = new ManualResetEvent(false);
+            var exception = new ManualResetEvent(false);
 
             var events = new List<string>();
 
@@ -151,7 +250,9 @@ namespace Redis.Workflow.Common
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
             wh.WorkflowFailed += (s, w) => { events.Add("failed"); failed.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            EventHandler<Exception> eh = (s, e) => { events.Add(e.Message); exception.Set(); };
+
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", eh))
             {
                 var workflowName = "TestWorkflow";
 
@@ -165,7 +266,9 @@ namespace Redis.Workflow.Common
 
                 var workflowId = wm.PushWorkflow(workflow);
 
-                var result = WaitHandle.WaitAny(new[] { failed, complete }, 2000);
+                var result = WaitHandle.WaitAny(new[] { exception, failed, complete }, 2000);
+
+                if(result == 0) throw new Exception("Failed in workflow operation"); // in a real app, handler could add exception to a list to process
 
                 // In principle this is a failed workflow, as one of the tasks will fail
                 // However, if all tasks get started, then the succeeding leaf node finishes first, this will be marked successful
@@ -173,7 +276,7 @@ namespace Redis.Workflow.Common
                 // CHoose latter.
                 Console.WriteLine("TaskHandler events"); foreach (var ev in th.Events) Console.WriteLine("TH event: " + ev);
                 Console.WriteLine("WM events"); foreach (var ev in events) Console.WriteLine("Event: " + ev);
-                Assert.AreEqual(0, result);
+                Assert.AreEqual(1, result);
 
                 wm.CleanUp(workflowId.ToString());
             }
@@ -222,7 +325,7 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
             {
                 var workflowName = "TestWorkflow";
 
@@ -262,7 +365,7 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
             {
                 var workflowName = "TestWorkflow";
 
@@ -331,7 +434,7 @@ namespace Redis.Workflow.Common
             wh.WorkflowComplete += (s, w) => { complete.Set(); };
             wh.WorkflowFailed += (s, w) => { failed.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
             {
                 var workflowName = "TestWorkflow";
 
@@ -369,7 +472,7 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
             {
                 var workflowName = "TestWorkflow";
 
@@ -406,7 +509,7 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
             {
                 var workflowName = "TestWorkflow";
 
@@ -444,7 +547,7 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
             {
                 var workflowName = "TestWorkflow";
 
@@ -498,7 +601,7 @@ namespace Redis.Workflow.Common
 
             var workflow = new Workflow { Name = workflowName, Tasks = tasks };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
             {
                 wm.PushWorkflow(workflow);
 
@@ -509,7 +612,7 @@ namespace Redis.Workflow.Common
             }
 
             // create a new wm to simulate a restart of a component
-            using (var wm2 = new WorkflowManagement(_mux, th2, wh, "test"))
+            using (var wm2 = new WorkflowManagement(_mux, th2, wh, "test", new Lua()))
             {
                 Assert.AreEqual(1, db.ListLength("submitted"));
 
@@ -550,7 +653,7 @@ namespace Redis.Workflow.Common
 
             var workflow = new Workflow { Name = workflowName, Tasks = tasks };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
             {
                 var workflowId = wm.PushWorkflow(workflow);
 
@@ -620,7 +723,7 @@ namespace Redis.Workflow.Common
 
             var workflow = new Workflow { Name = workflowName, Tasks = tasks };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test"))
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new Lua()))
             {
                 var workflowId = wm.PushWorkflow(workflow);
 

@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using StackExchange.Redis;
 
 namespace Redis.Workflow.Common
@@ -15,11 +13,16 @@ namespace Redis.Workflow.Common
             _sub.UnsubscribeAll();
         }
 
-        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, Behaviours behaviours = Behaviours.All)
+        internal WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, ILua lua, EventHandler<Exception> exceptionHandler = null, Behaviours behaviours = Behaviours.All)
         {
             _taskHandler = taskHandler;
 
             _workflowHandler = workflowHandler;
+
+            if (exceptionHandler != null)
+            {
+                ExceptionThrown += exceptionHandler;
+            }
 
             _db = mux.GetDatabase();
 
@@ -35,13 +38,12 @@ namespace Redis.Workflow.Common
                 ProcessNextFailedWorkflow();
             });
 
-
             _sub.Subscribe("workflowComplete", (c, v) =>
             {
                 ProcessNextCompleteWorkflow();
             });
 
-            _lua = new Lua();
+            _lua = lua;
             _lua.LoadScripts(_db, mux.GetServer("localhost:6379"));
 
             _identifier = identifier;
@@ -57,20 +59,38 @@ namespace Redis.Workflow.Common
             }
         }
 
+        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, EventHandler<Exception> exceptionHandler, Behaviours behaviours = Behaviours.All)
+                        : this(mux, taskHandler, workflowHandler, identifier, new Lua(), exceptionHandler, behaviours)
+        {
+            
+        }
+
         private string ProcessNextFailedWorkflow()
         {
-            var workflow = PopFailedWorkflow();
+            string workflow = null;
 
-            if (workflow == null) return null;
+            try
+            {
+                workflow = PopFailedWorkflow();
 
-            Console.WriteLine("Workflow failed: " + workflow);
+                if (workflow == null) return null;
 
-            // TODO: have this populate an eventargs structure that can be passed back to the subscriber
-            ProcessWorkflow(workflow);
+                Console.WriteLine("Workflow failed: " + workflow);
 
-            _workflowHandler.OnWorkflowFailed(workflow);
+                // TODO: have this populate an eventargs structure that can be passed back to the subscriber
+                ProcessWorkflow(workflow);
 
-            return workflow;
+                _workflowHandler.OnWorkflowFailed(workflow);
+
+                return workflow;
+
+            }
+            catch (Exception ex)
+            {
+                OnException(ex);
+
+                return null; // TODO: see ProcessNextCompleteWorkflow for discussion ..
+            }
         }
 
         private string PopFailedWorkflow()
@@ -80,18 +100,29 @@ namespace Redis.Workflow.Common
 
         private string ProcessNextCompleteWorkflow()
         {
-            var workflow = PopCompleteWorkflow();
+            string workflow = null;
 
-            if (workflow == null) return null;
+            try
+            {
+                workflow = PopCompleteWorkflow();
 
-            Console.WriteLine("Workflow complete: " + workflow);
+                if (workflow == null) return null;
 
-            // TODO: have this populate an eventargs structure that can be passed back to the subscriber
-            ProcessWorkflow(workflow);
+                Console.WriteLine("Workflow complete: " + workflow);
 
-            _workflowHandler.OnWorkflowComplete(workflow);
+                // TODO: have this populate an eventargs structure that can be passed back to the subscriber
+                ProcessWorkflow(workflow);
 
-            return workflow;
+                _workflowHandler.OnWorkflowComplete(workflow);
+
+                return workflow;
+            }
+            catch (Exception ex)
+            {
+                OnException(ex);
+
+                return null; // TODO: tricky one, need to take a look at the use case for the return value. We're already calling into the workflow handler ...
+            }
         }
 
         private string PopCompleteWorkflow()
@@ -144,19 +175,40 @@ namespace Redis.Workflow.Common
 
         private string ProcessNextTask()
         {
-            var taskData = PopTask();
+            string[] taskData = null;
 
-            if (taskData == null) return null;
+            try
+            {
+                taskData = PopTask();
 
-            var task = taskData[0];
-            var payload = taskData[1];
+                if (taskData == null) return null;
 
-            var rh = new SimpleResultHandler(task, CompleteTask, FailTask);
+                var task = taskData[0];
+                var payload = taskData[1];
 
-            _taskHandler.Run(payload, rh);
+                var rh = new SimpleResultHandler(task, CompleteTask, FailTask);
 
-            return task;
+                _taskHandler.Run(payload, rh);
+
+                return task;
+
+            }
+            catch (Exception ex)
+            {
+                OnException(ex);
+
+                return null; // might need examination, although null does indicate no task found
+            }
         }
+
+        private void OnException(Exception ex)
+        {
+            var handler = ExceptionThrown;
+
+            if (handler != null) handler(this, ex);
+        }
+
+        public event EventHandler<Exception> ExceptionThrown;
 
         private string[] PopTask()
         {
@@ -239,9 +291,16 @@ namespace Redis.Workflow.Common
 
         private void CompleteTask(string task)
         {
-            _lua.CompleteTask(_db, task, Timestamp(), Identifier);
+            try
+            {
+                _lua.CompleteTask(_db, task, Timestamp(), Identifier);
 
-            Console.WriteLine("completed: " + task);
+                Console.WriteLine("completed: " + task);
+            }
+            catch(Exception ex)
+            {
+                OnException(ex);
+            }
         }
 
         public void ReleaseWorkflow(long? workflowId)
@@ -257,7 +316,7 @@ namespace Redis.Workflow.Common
 
         private readonly ISubscriber _sub;
 
-        private readonly Lua _lua;
+        private readonly ILua _lua;
 
         private readonly string _identifier;
 
