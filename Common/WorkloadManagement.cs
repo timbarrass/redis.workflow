@@ -75,8 +75,6 @@ namespace Redis.Workflow.Common
 
                 if (workflow == null) return null;
 
-                Console.WriteLine("Workflow failed: " + workflow);
-
                 // TODO: have this populate an eventargs structure that can be passed back to the subscriber
                 ProcessWorkflow(workflow);
 
@@ -107,8 +105,6 @@ namespace Redis.Workflow.Common
                 workflow = PopCompleteWorkflow();
 
                 if (workflow == null) return null;
-
-                Console.WriteLine("Workflow complete: " + workflow);
 
                 // TODO: have this populate an eventargs structure that can be passed back to the subscriber
                 ProcessWorkflow(workflow);
@@ -141,20 +137,20 @@ namespace Redis.Workflow.Common
 
         private void ProcessWorkflow(string workflowId)
         {
-            // this should be a structure we pass back through OnWorkflowComplete -- that is we should be passing back
-            // some actual event args
-            var taskIds = ((string)_db.HashGet("workflow:" + workflowId, "tasks")).Split(',');
-            foreach (var taskId in taskIds)
-            {
-                var submitted = _db.HashGet("task:" + taskId, "submitted");
-                var running = _db.HashGet("task:" + taskId, "running");
-                var complete = _db.HashGet("task:" + taskId, "complete");
-                var failed = _db.HashGet("task:" + taskId, "failed");
-                var parents = _db.HashGet("task:" + taskId, "parents");
-                var children = _db.HashGet("task:" + taskId, "children");
+            //// this should be a structure we pass back through OnWorkflowComplete -- that is we should be passing back
+            //// some actual event args
+            //var taskIds = ((string)_db.HashGet("workflow:" + workflowId, "tasks")).Split(',');
+            //foreach (var taskId in taskIds)
+            //{
+            //    var submitted = _db.HashGet("task:" + taskId, "submitted");
+            //    var running = _db.HashGet("task:" + taskId, "running");
+            //    var complete = _db.HashGet("task:" + taskId, "complete");
+            //    var failed = _db.HashGet("task:" + taskId, "failed");
+            //    var parents = _db.HashGet("task:" + taskId, "parents");
+            //    var children = _db.HashGet("task:" + taskId, "children");
 
-                Console.WriteLine("Task " + taskId + " s: " + submitted + " r: " + running + " c: " + complete + " fa: " + failed + " pa: " + parents + " ch: " + children);
-            }
+            //    Console.WriteLine("Task " + taskId + " s: " + submitted + " r: " + running + " c: " + complete + " fa: " + failed + " pa: " + parents + " ch: " + children);
+            //}
         }
 
         public void ClearBacklog()
@@ -270,9 +266,7 @@ namespace Redis.Workflow.Common
             var json = workflow.ToJson();
 
             var workflowId = _lua.PushWorkflow(_db, json, Timestamp());
-
-            Console.WriteLine("pushed: " + workflow.Name + " as workflow " + workflowId);
-
+            
             return workflowId.Value;
         }
 
@@ -282,16 +276,12 @@ namespace Redis.Workflow.Common
 
             var workflowId = await _lua.PushWorkflowAsync(_db, json, Timestamp());
 
-            Console.WriteLine("pushed: " + workflow.Name + " as workflow " + workflowId);
-
             return workflowId.Value;
         }
 
         private void PushTask(string task)
         {
             _lua.PushTask(_db, task, Timestamp());
-
-            Console.WriteLine("pushed: " + task);
         }
 
         private void FailTask(string task)
@@ -299,8 +289,6 @@ namespace Redis.Workflow.Common
             // if this class is told that a task has failed, we take it to mean that the workflow
             // has failed
             _lua.FailTask(_db, task, Timestamp());
-
-            Console.WriteLine("failed: " + task);
         }
 
         private void CompleteTask(string task)
@@ -308,8 +296,6 @@ namespace Redis.Workflow.Common
             try
             {
                 _lua.CompleteTask(_db, task, Timestamp(), Identifier);
-
-                Console.WriteLine("completed: " + task);
             }
             catch(Exception ex)
             {
