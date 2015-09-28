@@ -76,9 +76,9 @@ namespace Redis.Workflow.Common
                 if (workflow == null) return null;
 
                 // TODO: have this populate an eventargs structure that can be passed back to the subscriber
-                ProcessWorkflow(workflow);
+                var workflowDetails = FetchWorkflowInformation(workflow);
 
-                _workflowHandler.OnWorkflowFailed(workflow);
+                _workflowHandler.OnWorkflowFailed(workflow, workflowDetails);
 
                 return workflow;
 
@@ -107,9 +107,9 @@ namespace Redis.Workflow.Common
                 if (workflow == null) return null;
 
                 // TODO: have this populate an eventargs structure that can be passed back to the subscriber
-                ProcessWorkflow(workflow);
+                var workflowDetails = FetchWorkflowInformation(workflow);
 
-                _workflowHandler.OnWorkflowComplete(workflow);
+                _workflowHandler.OnWorkflowComplete(workflow, workflowDetails);
 
                 return workflow;
             }
@@ -137,20 +137,20 @@ namespace Redis.Workflow.Common
 
         private void ProcessWorkflow(string workflowId)
         {
-            //// this should be a structure we pass back through OnWorkflowComplete -- that is we should be passing back
-            //// some actual event args
-            //var taskIds = ((string)_db.HashGet("workflow:" + workflowId, "tasks")).Split(',');
-            //foreach (var taskId in taskIds)
-            //{
-            //    var submitted = _db.HashGet("task:" + taskId, "submitted");
-            //    var running = _db.HashGet("task:" + taskId, "running");
-            //    var complete = _db.HashGet("task:" + taskId, "complete");
-            //    var failed = _db.HashGet("task:" + taskId, "failed");
-            //    var parents = _db.HashGet("task:" + taskId, "parents");
-            //    var children = _db.HashGet("task:" + taskId, "children");
+            // this should be a structure we pass back through OnWorkflowComplete -- that is we should be passing back
+            // some actual event args
+            var taskIds = ((string)_db.HashGet("workflow:" + workflowId, "tasks")).Split(',');
+            foreach (var taskId in taskIds)
+            {
+                var submitted = _db.HashGet("task:" + taskId, "submitted");
+                var running = _db.HashGet("task:" + taskId, "running");
+                var complete = _db.HashGet("task:" + taskId, "complete");
+                var failed = _db.HashGet("task:" + taskId, "failed");
+                var parents = _db.HashGet("task:" + taskId, "parents");
+                var children = _db.HashGet("task:" + taskId, "children");
 
-            //    Console.WriteLine("Task " + taskId + " s: " + submitted + " r: " + running + " c: " + complete + " fa: " + failed + " pa: " + parents + " ch: " + children);
-            //}
+                Console.WriteLine("Task " + taskId + " s: " + submitted + " r: " + running + " c: " + complete + " fa: " + failed + " pa: " + parents + " ch: " + children);
+            }
         }
 
         public void ClearBacklog()
