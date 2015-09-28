@@ -2,6 +2,7 @@
 using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 
 namespace Redis.Workflow.BenchmarkApp
@@ -25,41 +26,90 @@ namespace Redis.Workflow.BenchmarkApp
 
         internal void Run(string[] args)
         {
-            int workflows = 10000;
+            int workflows = 100000;
 
-            Common.Workflow workflow = CreateTestWorkflow();
+            var mux = ConnectionMultiplexer.Connect("localhost");
+            var db = mux.GetDatabase();
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
 
-            var th = new TaskHandler();
+            if (File.Exists("times.txt")) File.Delete("times.txt");
 
-            var wh = new WorkflowHandler();
+                Common.Workflow workflow = CreateTestWorkflow();
 
-            int total = 0;
-            int completed = 0;
-            var countLock = new object();
-            var allDone = new ManualResetEvent(false);
-            // TODO: condition variable ...
-            wh.WorkflowComplete += (s, w) => { lock(countLock) { completed++; Console.Write("done: " + completed + "\r"); if (completed == workflows) allDone.Set(); } };
-            wh.WorkflowFailed += (s, w) => { lock (countLock) { completed++; Console.Write("done: " + completed + "\r"); if (completed == workflows) allDone.Set(); } };
+                var th = new TaskHandler();
 
-            EventHandler<Exception> eh = (s, e) => { Console.WriteLine("EXCEPTION"); allDone.Set(); };
+                var wh = new WorkflowHandler();
 
-            var wm = new WorkflowManagement(ConnectionMultiplexer.Connect("localhost"), th, wh, "sampleApp", eh);
+                var completionEvents = new List<DateTime>();
 
-            var startTime = DateTime.Now;
+                bool pushDone = false;
+                int total = 0;
+                int completed = 0;
+                var countLock = new object();
+                var allDone = new ManualResetEvent(false);
+                // TODO: condition variable ...
+                wh.WorkflowComplete += (s, id) => { lock (countLock) { completed++; Console.Write("pushDone: " + pushDone + " done: " + completed + "\r"); completionEvents.Add(DateTime.Now); if (completed == workflows) allDone.Set(); } };
+                wh.WorkflowFailed += (s, id) => { lock (countLock) { completed++; Console.Write("pushDone: " + pushDone + " done: " + completed + "\r"); completionEvents.Add(DateTime.Now); if (completed == workflows) allDone.Set(); } };
 
-            for (int i = 0; i < workflows; i++)
+                EventHandler<Exception> eh = (s, e) => { Console.WriteLine("EXCEPTION"); allDone.Set(); };
+
+                var wm = new WorkflowManagement(mux, th, wh, "sampleApp", eh);
+
+                var startTime = DateTime.Now;
+
+                for (int i = 0; i < workflows; i++)
+                {
+                    var id = wm.PushWorkflow(workflow);
+                }
+
+                var pushDuration = new TimeSpan(DateTime.Now.Ticks - startTime.Ticks);
+                pushDone = true;
+
+                WaitHandle.WaitAny(new[] { allDone });
+
+                var duration = new TimeSpan(DateTime.Now.Ticks - startTime.Ticks);
+                Console.WriteLine("Done, {0} in {1} ms (push took {2} ms, {3} per second) tasks: {4} churn: {5} tasks per second", workflows, duration.TotalMilliseconds, pushDuration.TotalMilliseconds, workflows / pushDuration.TotalSeconds, workflows * 4, workflows * 4 / duration.TotalSeconds);
+
+            Console.Write("Saving data .. ");
+
+            using (var w = new StreamWriter("finalWorkflowCompletion.txt"))
             {
-                var id = wm.PushWorkflow(workflow);
+                foreach(var item in completionEvents)
+                {
+                    w.WriteLine(new TimeSpan(item.Ticks - startTime.Ticks).TotalSeconds);
+                }
             }
 
-            var pushDuration = new TimeSpan(DateTime.Now.Ticks - startTime.Ticks);
+            using (var w = new StreamWriter("redisWorkflowCompletion.txt"))
+            {
+                for (int i = 1; i <= workflows; i++)
+                {
+                    var details = wm.FetchWorkflowInformation(i.ToString());
 
-            WaitHandle.WaitAny(new[] { allDone });
+                    w.WriteLine(new TimeSpan(DateTime.Parse(details.Complete).Ticks - startTime.Ticks).TotalSeconds);
+                }
+            }
 
-            var duration = new TimeSpan(DateTime.Now.Ticks - startTime.Ticks);
-            Console.WriteLine("Done, {0} in {1} ms (push took {2} ms) tasks: {3} churn: {4} tasks per second", workflows, duration.TotalMilliseconds, pushDuration.TotalMilliseconds, workflows * 4, workflows * 4 / duration.TotalSeconds);
+            using (var w = new StreamWriter("redisTaskData.txt"))
+            {
+                for (int i = 1; i <= workflows; i++)
+                {
+                    var details = wm.FetchWorkflowInformation(i.ToString());
+
+                    foreach (var task in details.Tasks)
+                    {
+                        w.WriteLine(
+                            new TimeSpan(DateTime.Parse(task.submitted).Ticks - startTime.Ticks).TotalSeconds + " " +
+                            new TimeSpan(DateTime.Parse(task.complete).Ticks - startTime.Ticks).TotalSeconds);
+                    }
+                }
+            }
+
+            Console.WriteLine("done");
 
             Console.ReadLine();
+
+            db.ScriptEvaluate("redis.call(\"flushdb\")"); // TODO need to look at timeouts
         }
 
         private static Common.Workflow CreateTestWorkflow()
@@ -67,12 +117,15 @@ namespace Redis.Workflow.BenchmarkApp
             var workflowName = "TestWorkflow";
 
             var tasks = new List<Task>();
-            tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-            tasks.Add(new Task { Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4" }, Workflow = workflowName });
-            tasks.Add(new Task { Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            tasks.Add(new Task { Name = "1", Payload = "payload", Parents = new string[] { }, Children = new string[] { "2" }, Workflow = workflowName });
+
+            for(int i = 2; i < 10; i++)
+            {
+                tasks.Add(new Task { Name = i.ToString(), Payload = "payload", Parents = new string[] { (i - 1).ToString() }, Children = new string[] { (i + 1).ToString() }, Workflow = workflowName });
+            }
 
             var workflow = new Common.Workflow { Name = workflowName, Tasks = tasks };
+
             return workflow;
         }
     }
