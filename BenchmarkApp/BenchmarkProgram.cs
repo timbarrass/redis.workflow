@@ -29,52 +29,68 @@ namespace Redis.Workflow.BenchmarkApp
             int workflows = 100000;
 
             var mux = ConnectionMultiplexer.Connect("localhost");
+            mux.PreserveAsyncOrder = false;
             var db = mux.GetDatabase();
             db.ScriptEvaluate("redis.call(\"flushdb\")");
+            
+            Common.Workflow workflow = CreateTestWorkflow();
 
-            if (File.Exists("times.txt")) File.Delete("times.txt");
+            var th = new TaskHandler();
 
-                Common.Workflow workflow = CreateTestWorkflow();
+            var wh = new WorkflowHandler();
 
-                var th = new TaskHandler();
+            var completionEvents = new List<DateTime>();
 
-                var wh = new WorkflowHandler();
+            bool pushDone = false;
+            int total = 0;
+            int completed = 0;
+            var countLock = new object();
+            var allDone = new ManualResetEvent(false);
+            wh.WorkflowComplete += (s, id) => { lock (countLock) { completed++; Console.Write("pushDone: " + pushDone + " done: " + completed + "\r"); completionEvents.Add(DateTime.Now); if (completed == workflows) allDone.Set(); } };
+            wh.WorkflowFailed += (s, id) => { lock (countLock) { completed++; Console.Write("pushDone: " + pushDone + " done: " + completed + "\r"); completionEvents.Add(DateTime.Now); if (completed == workflows) allDone.Set(); } };
 
-                var completionEvents = new List<DateTime>();
+            EventHandler<Exception> eh = (s, e) => { Console.WriteLine("EXCEPTION: " + e.Message + ": " + e.StackTrace); allDone.Set(); };
 
-                bool pushDone = false;
-                int total = 0;
-                int completed = 0;
-                var countLock = new object();
-                var allDone = new ManualResetEvent(false);
-                // TODO: condition variable ...
-                wh.WorkflowComplete += (s, id) => { lock (countLock) { completed++; Console.Write("pushDone: " + pushDone + " done: " + completed + "\r"); completionEvents.Add(DateTime.Now); if (completed == workflows) allDone.Set(); } };
-                wh.WorkflowFailed += (s, id) => { lock (countLock) { completed++; Console.Write("pushDone: " + pushDone + " done: " + completed + "\r"); completionEvents.Add(DateTime.Now); if (completed == workflows) allDone.Set(); } };
+            var wm = new WorkflowManagement(mux, th, wh, "sampleApp", eh);
 
-                EventHandler<Exception> eh = (s, e) => { Console.WriteLine("EXCEPTION"); allDone.Set(); };
+            var startTime = DateTime.Now;
 
-                var wm = new WorkflowManagement(mux, th, wh, "sampleApp", eh);
+            var submittedQueueLength = new List<Tuple<DateTime, string>>();
+            var runningSetLength     = new List<Tuple<DateTime, string>>();
+            var queueSampler = new System.Timers.Timer() { Interval = 10000, AutoReset = true, Enabled = true };
+            queueSampler.Elapsed += (s, e) => {
+                var val = db.ListLength("submitted");
+                submittedQueueLength.Add(new Tuple<DateTime, string>(DateTime.Now, val.ToString()));
+                val = db.SetLength("running");
+                runningSetLength.Add(new Tuple<DateTime, string>(DateTime.Now, val.ToString()));
+            };
 
-                var startTime = DateTime.Now;
+            for (int i = 0; i < workflows; i++)
+            {
+                var id = wm.PushWorkflow(workflow);
+            }
 
-                for (int i = 0; i < workflows; i++)
-                {
-                    var id = wm.PushWorkflow(workflow);
-                }
+            var pushDuration = new TimeSpan(DateTime.Now.Ticks - startTime.Ticks);
+            pushDone = true;
 
-                var pushDuration = new TimeSpan(DateTime.Now.Ticks - startTime.Ticks);
-                pushDone = true;
+            WaitHandle.WaitAny(new[] { allDone });
 
-                WaitHandle.WaitAny(new[] { allDone });
-
-                var duration = new TimeSpan(DateTime.Now.Ticks - startTime.Ticks);
-                Console.WriteLine("Done, {0} in {1} ms (push took {2} ms, {3} per second) tasks: {4} churn: {5} tasks per second", workflows, duration.TotalMilliseconds, pushDuration.TotalMilliseconds, workflows / pushDuration.TotalSeconds, workflows * 4, workflows * 4 / duration.TotalSeconds);
+            var duration = new TimeSpan(DateTime.Now.Ticks - startTime.Ticks);
+            Console.WriteLine("Done, {0} in {1} ms (push took {2} ms, {3} per second) tasks: {4} churn: {5} tasks per second", workflows, duration.TotalMilliseconds, pushDuration.TotalMilliseconds, workflows / pushDuration.TotalSeconds, workflows * 9, workflows * 9 / duration.TotalSeconds);
 
             Console.Write("Saving data .. ");
 
+            using (var w = new StreamWriter("queueLengths.txt"))
+            {
+                for(int i = 0; i < submittedQueueLength.Count; i++)
+                {
+                    w.WriteLine(new TimeSpan(submittedQueueLength[i].Item1.Ticks - startTime.Ticks).TotalSeconds.ToString() + "\t" + submittedQueueLength[i].Item2 + "\t" + runningSetLength[i].Item2);
+                }
+            }
+
             using (var w = new StreamWriter("finalWorkflowCompletion.txt"))
             {
-                foreach(var item in completionEvents)
+                foreach (var item in completionEvents)
                 {
                     w.WriteLine(new TimeSpan(item.Ticks - startTime.Ticks).TotalSeconds);
                 }
@@ -99,7 +115,7 @@ namespace Redis.Workflow.BenchmarkApp
                     foreach (var task in details.Tasks)
                     {
                         w.WriteLine(
-                            new TimeSpan(DateTime.Parse(task.submitted).Ticks - startTime.Ticks).TotalSeconds + " " +
+                            new TimeSpan(DateTime.Parse(task.submitted).Ticks - startTime.Ticks).TotalSeconds + "\t" +
                             new TimeSpan(DateTime.Parse(task.complete).Ticks - startTime.Ticks).TotalSeconds);
                     }
                 }
