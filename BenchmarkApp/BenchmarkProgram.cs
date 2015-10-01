@@ -3,6 +3,7 @@ using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Threading;
 
 namespace Redis.Workflow.BenchmarkApp
@@ -27,43 +28,34 @@ namespace Redis.Workflow.BenchmarkApp
         internal void Run(string[] args)
         {
             int workflows = 100000;
-
-            var mux = ConnectionMultiplexer.Connect("localhost");
-            mux.PreserveAsyncOrder = false;
-            var db = mux.GetDatabase();
-            db.ScriptEvaluate("redis.call(\"flushdb\")");
-            
-            Common.Workflow workflow = CreateTestWorkflow();
-
-            var th = new TaskHandler();
-
-            var wh = new WorkflowHandler();
-
-            var completionEvents = new List<DateTime>();
-
             bool pushDone = false;
-            int total = 0;
             int completed = 0;
             var countLock = new object();
             var allDone = new ManualResetEvent(false);
+
+            var completionEvents = new List<DateTime>();
+            var submittedQueueLength = new List<Tuple<DateTime, string>>();
+            var runningSetLength = new List<Tuple<DateTime, string>>();
+
+            var mux = ConnectMultiplexer();
+
+            var db = ConnectAndFlushDatabase(mux);
+
+            var eh = CreateEventHandler(allDone);
+
+            var th = CreateTaskHandler();
+
+            var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, id) => { lock (countLock) { completed++; Console.Write("pushDone: " + pushDone + " done: " + completed + "\r"); completionEvents.Add(DateTime.Now); if (completed == workflows) allDone.Set(); } };
             wh.WorkflowFailed += (s, id) => { lock (countLock) { completed++; Console.Write("pushDone: " + pushDone + " done: " + completed + "\r"); completionEvents.Add(DateTime.Now); if (completed == workflows) allDone.Set(); } };
 
-            EventHandler<Exception> eh = (s, e) => { Console.WriteLine("EXCEPTION: " + e.Message + ": " + e.StackTrace); allDone.Set(); };
+            CreateQueueLengthSampler(submittedQueueLength, runningSetLength, db);
 
-            var wm = new WorkflowManagement(mux, th, wh, "sampleApp", eh);
+            var wm = BuildWorkflowManagers(mux, th, wh, eh);
+
+            var workflow = CreateTestWorkflow();
 
             var startTime = DateTime.Now;
-
-            var submittedQueueLength = new List<Tuple<DateTime, string>>();
-            var runningSetLength     = new List<Tuple<DateTime, string>>();
-            var queueSampler = new System.Timers.Timer() { Interval = 10000, AutoReset = true, Enabled = true };
-            queueSampler.Elapsed += (s, e) => {
-                var val = db.ListLength("submitted");
-                submittedQueueLength.Add(new Tuple<DateTime, string>(DateTime.Now, val.ToString()));
-                val = db.SetLength("running");
-                runningSetLength.Add(new Tuple<DateTime, string>(DateTime.Now, val.ToString()));
-            };
 
             for (int i = 0; i < workflows; i++)
             {
@@ -80,32 +72,23 @@ namespace Redis.Workflow.BenchmarkApp
 
             Console.Write("Saving data .. ");
 
-            using (var w = new StreamWriter("queueLengths.txt"))
-            {
-                for(int i = 0; i < submittedQueueLength.Count; i++)
-                {
-                    w.WriteLine(new TimeSpan(submittedQueueLength[i].Item1.Ticks - startTime.Ticks).TotalSeconds.ToString() + "\t" + submittedQueueLength[i].Item2 + "\t" + runningSetLength[i].Item2);
-                }
-            }
+            ExportQueueLengths(submittedQueueLength, runningSetLength, startTime);
 
-            using (var w = new StreamWriter("finalWorkflowCompletion.txt"))
-            {
-                foreach (var item in completionEvents)
-                {
-                    w.WriteLine(new TimeSpan(item.Ticks - startTime.Ticks).TotalSeconds);
-                }
-            }
+            ExportFinalWorkflowCompletion(completionEvents, startTime);
 
-            using (var w = new StreamWriter("redisWorkflowCompletion.txt"))
-            {
-                for (int i = 1; i <= workflows; i++)
-                {
-                    var details = wm.FetchWorkflowInformation(i.ToString());
+            ExportWorkflowCompletion(workflows, wm, startTime);
 
-                    w.WriteLine(new TimeSpan(DateTime.Parse(details.Complete).Ticks - startTime.Ticks).TotalSeconds);
-                }
-            }
+            ExportTaskData(workflows, wm, startTime);
 
+            Console.WriteLine("done");
+
+            Console.ReadLine();
+
+            db.ScriptEvaluate("redis.call(\"flushdb\")"); // TODO need to look at timeouts
+        }
+
+        private static void ExportTaskData(int workflows, WorkflowManagement wm, DateTime startTime)
+        {
             using (var w = new StreamWriter("redisTaskData.txt"))
             {
                 for (int i = 1; i <= workflows; i++)
@@ -120,12 +103,91 @@ namespace Redis.Workflow.BenchmarkApp
                     }
                 }
             }
+        }
 
-            Console.WriteLine("done");
+        private static void ExportWorkflowCompletion(int workflows, WorkflowManagement wm, DateTime startTime)
+        {
+            using (var w = new StreamWriter("redisWorkflowCompletion.txt"))
+            {
+                for (int i = 1; i <= workflows; i++)
+                {
+                    var details = wm.FetchWorkflowInformation(i.ToString());
 
-            Console.ReadLine();
+                    w.WriteLine(new TimeSpan(DateTime.Parse(details.Complete).Ticks - startTime.Ticks).TotalSeconds);
+                }
+            }
+        }
 
-            db.ScriptEvaluate("redis.call(\"flushdb\")"); // TODO need to look at timeouts
+        private static void ExportFinalWorkflowCompletion(List<DateTime> completionEvents, DateTime startTime)
+        {
+            using (var w = new StreamWriter("finalWorkflowCompletion.txt"))
+            {
+                foreach (var item in completionEvents)
+                {
+                    w.WriteLine(new TimeSpan(item.Ticks - startTime.Ticks).TotalSeconds);
+                }
+            }
+        }
+
+        private static void ExportQueueLengths(List<Tuple<DateTime, string>> submittedQueueLength, List<Tuple<DateTime, string>> runningSetLength, DateTime startTime)
+        {
+            using (var w = new StreamWriter("queueLengths.txt"))
+            {
+                for (int i = 0; i < submittedQueueLength.Count; i++)
+                {
+                    w.WriteLine(new TimeSpan(submittedQueueLength[i].Item1.Ticks - startTime.Ticks).TotalSeconds.ToString() + "\t" + submittedQueueLength[i].Item2 + "\t" + runningSetLength[i].Item2);
+                }
+            }
+        }
+
+        private static void CreateQueueLengthSampler(List<Tuple<DateTime, string>> submittedQueueLength, List<Tuple<DateTime, string>> runningSetLength, IDatabase db)
+        {
+            var queueSampler = new System.Timers.Timer() { Interval = 10000, AutoReset = true, Enabled = true };
+            queueSampler.Elapsed += (s, e) =>
+            {
+                var val = db.ListLength("submitted");
+                submittedQueueLength.Add(new Tuple<DateTime, string>(DateTime.Now, val.ToString()));
+                val = db.SetLength("running");
+                runningSetLength.Add(new Tuple<DateTime, string>(DateTime.Now, val.ToString()));
+            };
+        }
+
+        private static EventHandler<Exception> CreateEventHandler(ManualResetEvent allDone)
+        {
+            return (s, e) => { Console.WriteLine("EXCEPTION: " + e.Message + ": " + e.StackTrace); allDone.Set(); };
+        }
+
+        private static TaskHandler CreateTaskHandler()
+        {
+            return new TaskHandler();
+        }
+
+        private static WorkflowManagement BuildWorkflowManagers(ConnectionMultiplexer mux, TaskHandler th, WorkflowHandler wh, EventHandler<Exception> eh)
+        {
+            var wm = new WorkflowManagement(mux, th, wh, "sampleApp", eh);
+
+            var extraProcessors = new List<WorkflowManagement>();
+            for (int i = 0; i < 10; i++)
+            {
+                extraProcessors.Add(new WorkflowManagement(mux, th, wh, "processor-" + i, eh));
+            }
+
+            return wm;
+        }
+
+        private static IDatabase ConnectAndFlushDatabase(ConnectionMultiplexer mux)
+        {
+            var db = mux.GetDatabase();
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+            return db;
+        }
+
+        private static ConnectionMultiplexer ConnectMultiplexer()
+        {
+            var mux = ConnectionMultiplexer.Connect("localhost,syncTimeout=3000,responseTimeout=2000");
+            //var mux = ConnectionMultiplexer.Connect("localhost");
+            mux.PreserveAsyncOrder = false;
+            return mux;
         }
 
         private static Common.Workflow CreateTestWorkflow()
