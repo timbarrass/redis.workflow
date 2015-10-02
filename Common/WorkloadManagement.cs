@@ -1,5 +1,7 @@
 ﻿using System;
 using StackExchange.Redis;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Redis.Workflow.Common
 {
@@ -13,7 +15,7 @@ namespace Redis.Workflow.Common
             _sub.UnsubscribeAll();
         }
 
-        internal WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, ILua lua, EventHandler<Exception> exceptionHandler = null, Behaviours behaviours = Behaviours.All)
+        internal WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, IEnumerable<string> typesProcessed, ILua lua, EventHandler<Exception> exceptionHandler = null, Behaviours behaviours = Behaviours.All)
         {
             _taskHandler = taskHandler;
 
@@ -24,14 +26,29 @@ namespace Redis.Workflow.Common
                 ExceptionThrown += exceptionHandler;
             }
 
+            _typesProcessed = typesProcessed;
+
             _db = mux.GetDatabase();
 
             _sub = mux.GetSubscriber();
 
-            _sub.Subscribe("submittedTask", (c, v) =>
+            if (_typesProcessed == null || _typesProcessed.Count() == 0)
             {
-                ProcessNextTask();
-            });
+                _sub.Subscribe("submittedTask", (c, v) =>
+                {
+                    ProcessNextTask();
+                });
+            }
+            else
+            {
+                foreach(var t in _typesProcessed)
+                {
+                    _sub.Subscribe("submittedTask:" + t, (c, v) =>
+                    {
+                        ProcessNextTask(t);
+                    });
+                }
+            }
 
             _sub.Subscribe("workflowFailed", (c, v) =>
             {
@@ -59,8 +76,8 @@ namespace Redis.Workflow.Common
             }
         }
 
-        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, EventHandler<Exception> exceptionHandler, Behaviours behaviours = Behaviours.All)
-                        : this(mux, taskHandler, workflowHandler, identifier, new Lua(), exceptionHandler, behaviours)
+        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, EventHandler<Exception> exceptionHandler, IEnumerable<string> typesProcessed = null, Behaviours behaviours = Behaviours.All)
+                        : this(mux, taskHandler, workflowHandler, identifier, typesProcessed, new Lua(), exceptionHandler, behaviours)
         {
             
         }
@@ -169,6 +186,34 @@ namespace Redis.Workflow.Common
             get { return _identifier; }
         }
 
+        private string ProcessNextTask(string type)
+        {
+            string[] taskData = null;
+
+            try
+            {
+                taskData = PopTask(type);
+
+                if (taskData == null) return null;
+
+                var task = taskData[0];
+                var payload = taskData[1];
+
+                var rh = new SimpleResultHandler(task, CompleteTask, FailTask);
+
+                _taskHandler.Run(payload, rh);
+
+                return task;
+            }
+            catch (Exception ex)
+            {
+                OnException(ex);
+
+                return null; // might need examination, although null does indicate no task found
+            }
+        }
+
+
         private string ProcessNextTask()
         {
             string[] taskData = null;
@@ -209,6 +254,11 @@ namespace Redis.Workflow.Common
         private string[] PopTask()
         {
             return _lua.PopTask(_db, Timestamp(), Identifier);
+        }
+
+        private string[] PopTask(string type)
+        {
+            return _lua.PopTask(_db, type, Timestamp(), Identifier);
         }
 
         private static string Timestamp()
@@ -322,5 +372,6 @@ namespace Redis.Workflow.Common
 
         private readonly object _turnstile = new object();
 
+        private readonly IEnumerable<string> _typesProcessed;
     }
 }

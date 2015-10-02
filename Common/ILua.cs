@@ -17,6 +17,7 @@ namespace Redis.Workflow.Common
         string PopCompleteWorkflow(IDatabase db);
         string PopFailedWorkflow(IDatabase db);
         string[] PopTask(IDatabase db, string timestamp, string responsible);
+        string[] PopTask(IDatabase db, string type, string timestamp, string responsible);
         void PushTask(IDatabase db, string task, string timestamp);
         long? PushWorkflow(IDatabase db, string workflowJson, string timestamp);
         Task<long?> PushWorkflowAsync(IDatabase db, string workflowJson, string timestamp);

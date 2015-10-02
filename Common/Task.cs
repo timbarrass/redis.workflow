@@ -11,5 +11,7 @@
         public string Payload { get; set; }
 
         public string Workflow { get; set; }
+
+        public string Type { get; set; }
     }
 }

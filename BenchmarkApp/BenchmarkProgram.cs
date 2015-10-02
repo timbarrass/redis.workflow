@@ -199,7 +199,7 @@ namespace Redis.Workflow.BenchmarkApp
 
             for(int i = 2; i < 10; i++)
             {
-                tasks.Add(new Task { Name = i.ToString(), Payload = "payload", Parents = new string[] { (i - 1).ToString() }, Children = new string[] { (i + 1).ToString() }, Workflow = workflowName });
+                tasks.Add(new Task { Type = "", Name = i.ToString(), Payload = "payload", Parents = new string[] { (i - 1).ToString() }, Children = new string[] { (i + 1).ToString() }, Workflow = workflowName });
             }
 
             var workflow = new Common.Workflow { Name = workflowName, Tasks = tasks };

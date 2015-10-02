@@ -91,11 +91,17 @@ namespace Redis.Workflow.Common
 
         public string[] PopTask(IDatabase db, string timestamp, string responsible)
         {
+            return PopTask(db, "", timestamp, responsible);
+        }
+
+        public string[] PopTask(IDatabase db, string type, string timestamp, string responsible)
+        {
             if (_case == TestCase.PopTask)
                 throw new NotImplementedException();
             else
                 return _lua.PopTask(db, timestamp, responsible);
         }
+
 
         public void PushTask(IDatabase db, string task, string timestamp)
         {
