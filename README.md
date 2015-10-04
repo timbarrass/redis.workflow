@@ -11,8 +11,8 @@ Early benchmarking in a low spec environment show that redis.workflow can proces
 
 Discussion of some design principles, and tests, can be found at http://timbar.blogspot.com .
 
-## Getting started -- a sample client application
-This is a simple example application that configures a workflow containing 4 tasks, submits and handles the task turnover:
+## Getting started with a sample client application
+This is a simple example application that configures a workflow containing 4 tasks, submits and handles the task turnover. You'll need an instance of Redis running on localhost.
 
     public class Program
     {
@@ -76,6 +76,7 @@ This is a simple example application that configures a workflow containing 4 tas
             var wm = new WorkflowManagement(ConnectionMultiplexer.Connect("localhost"), th, wh, "sampleApp", null);
 
             // Pushing a workflow causes it to be executed
+            // You'll need to hold on to this id if you want to issue specific operations against it
             var id = wm.PushWorkflow(workflow);
 
             Console.WriteLine("Workflow pushed");
@@ -102,3 +103,31 @@ This is a simple example application that configures a workflow containing 4 tas
         }
     }
 
+## A quick note on scaling
+You can scale out by spinning up multiple instances of WorkfloadManagement, each of which points at the same Redis instance. However, each of them will only process sequentially if you don't set
+
+    var mux = ConnectionMultiplexer("localhost");
+    mux.PreserveAsyncOrder = false;
+
+on the multiplexer you create. (I'm intending to wrap this in a builder method that gives you a scaling/non-scaling but trivially safe WorkloadManagment instance choice).
+
+## Pausing and releasing, and abandonment
+You can pause a workflow using
+
+    using(var wm = new WorkloadManagement(ConnectionMultiplexer.Connect("localhost"), th, wh, "sampleApp", null))
+    {
+       wm.PauseWorkflow(id);
+    }
+    
+Pausing a workflow prevents any unstarted tasks from starting. There's no pre-emptive cancellation; currently running tasks are allowed to run down, but on completion no dependent tasks will get started if the workflow is still paused.
+
+You can release a workflow using
+
+    using(var wm = new WorkloadManagement(ConnectionMultiplexer.Connect("localhost"), th, wh, "sampleApp", null))
+    {
+       wm.ReleaseWorkflow(id);
+    }
+    
+All tasks that were submitted before being paused will be returned to the submitted state. If any running tasks completed while paused then their dependent tasks will get moved to the submitted state.
+
+There is not any way of explicitly abandoning a task currently. Instead, a workflow could either be paused indefinitely, or just cleaned up.
