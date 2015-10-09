@@ -92,7 +92,6 @@ namespace Redis.Workflow.Common
 
                 if (workflow == null) return null;
 
-                // TODO: have this populate an eventargs structure that can be passed back to the subscriber
                 var workflowDetails = FetchWorkflowInformation(workflow);
 
                 _workflowHandler.OnWorkflowFailed(workflow, workflowDetails);
@@ -123,7 +122,6 @@ namespace Redis.Workflow.Common
 
                 if (workflow == null) return null;
 
-                // TODO: have this populate an eventargs structure that can be passed back to the subscriber
                 var workflowDetails = FetchWorkflowInformation(workflow);
 
                 _workflowHandler.OnWorkflowComplete(workflow, workflowDetails);
@@ -154,8 +152,6 @@ namespace Redis.Workflow.Common
 
         private void ProcessWorkflow(string workflowId)
         {
-            // this should be a structure we pass back through OnWorkflowComplete -- that is we should be passing back
-            // some actual event args
             var taskIds = ((string)_db.HashGet("workflow:" + workflowId, "tasks")).Split(',');
             foreach (var taskId in taskIds)
             {
@@ -327,11 +323,6 @@ namespace Redis.Workflow.Common
             var workflowId = await _lua.PushWorkflowAsync(_db, json, Timestamp());
 
             return workflowId.Value;
-        }
-
-        private void PushTask(string task)
-        {
-            _lua.PushTask(_db, task, Timestamp());
         }
 
         private void FailTask(string task)

@@ -43,11 +43,15 @@ namespace Redis.Workflow.Common
 
     public class TestTaskHandler : ITaskHandler
     {
+        public List<string> Payloads = new List<string>();
+
         public int TaskRunCount = 0;
 
         public void Run(string configuration, IResultHandler resultHandler)
         {
             TaskRunCount++;
+
+            Payloads.Add(configuration);
 
             resultHandler.OnSuccess();
         }
@@ -424,6 +428,56 @@ namespace Redis.Workflow.Common
         }
 
         [TestMethod]
+        public void RunsTasksInPriorityOrder()
+        {
+            var db = _mux.GetDatabase();
+            db.ScriptEvaluate("print(\"CanSubmitAndRunAWorkflow\")");
+            db.ScriptEvaluate("redis.call(\"flushdb\")");
+
+            var th = new TestTaskHandler();
+
+            var complete = new ManualResetEvent(false);
+
+            var events = new List<string>();
+
+            var wh = new WorkflowHandler();
+            wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
+
+            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            {
+                var workflowName = "TestWorkflow";
+
+                // 6 independent tasks in this workflow
+                var tasks = new List<Task>();
+                tasks.Add(new Task { Priority = 3, Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Priority = 2, Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Priority = 1, Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Priority = 4, Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Priority = 6, Type = "", Name = "TestNode5", Payload = "Node5", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
+                tasks.Add(new Task { Priority = 5, Type = "", Name = "TestNode6", Payload = "Node6", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
+
+                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+
+                wm.PushWorkflow(workflow);
+
+                var workflowWasCompleted = complete.WaitOne(2000);
+
+                Assert.IsTrue(workflowWasCompleted);
+
+                Console.WriteLine("WM events"); foreach (var ev in events) Console.WriteLine("Event: " + ev);
+
+                Assert.AreEqual(6, th.TaskRunCount);
+                Assert.AreEqual("Node3", th.Payloads[0]);
+                Assert.AreEqual("Node2", th.Payloads[1]);
+                Assert.AreEqual("Node1", th.Payloads[2]);
+                Assert.AreEqual("Node4", th.Payloads[3]);
+                Assert.AreEqual("Node6", th.Payloads[4]);
+                Assert.AreEqual("Node5", th.Payloads[5]);
+            }
+        }
+
+
+        [TestMethod]
         public void CanSubmitAndRunAWorkflowWithTypedTasks()
         {
             var db = _mux.GetDatabase();
@@ -456,7 +510,7 @@ namespace Redis.Workflow.Common
 
                 wm.PushWorkflow(workflow);
 
-                var workflowWasCompleted = complete.WaitOne(/*2000*/);
+                var workflowWasCompleted = complete.WaitOne(2000);
 
                 Assert.IsTrue(workflowWasCompleted);
 
@@ -604,7 +658,7 @@ namespace Redis.Workflow.Common
 
                 wm.PushWorkflow(workflow);
 
-                var result = WaitHandle.WaitAny(new[] { complete }/*, 2000*/);
+                var result = WaitHandle.WaitAny(new[] { complete }, 2000);
 
                 Assert.AreEqual(0, result);
             }
@@ -728,13 +782,13 @@ namespace Redis.Workflow.Common
                 // we've picked up the first task, and don't want to pick up any more
                 th.Gate.WaitOne();
 
-                Assert.AreEqual(0, db.ListLength("submitted:testTaskType"));
+                Assert.AreEqual(0, db.SortedSetLength("submitted:testTaskType"));
             }
 
             // create a new wm to simulate a restart of a component
             using (var wm2 = new WorkflowManagement(_mux, th2, wh, "test", new[] { "testTaskType" }, new Lua()))
             {
-                Assert.AreEqual(1, db.ListLength("submitted:testTaskType"));
+                Assert.AreEqual(1, db.SortedSetLength("submitted:testTaskType"));
 
                 th.Abort.Set();
                 th2.LetRun.Set();
@@ -788,7 +842,7 @@ namespace Redis.Workflow.Common
             // create a new wm to simulate a restart of a component
             using (var wm2 = new WorkflowManagement(_mux, th2, wh, "test", null, new Lua()))
             {
-                Assert.AreEqual(1, db.ListLength("submitted"));
+                Assert.AreEqual(1, db.SortedSetLength("submitted"));
 
                 th.Abort.Set();
                 th2.LetRun.Set();
@@ -833,7 +887,7 @@ namespace Redis.Workflow.Common
 
                 th.Gate.WaitOne();
 
-                Assert.AreEqual(1, db.ListLength("submitted:testTaskType"));
+                Assert.AreEqual(1, db.SortedSetLength("submitted:testTaskType"));
                 Assert.AreEqual(1, db.SetLength("running"));
 
                 wm.PauseWorkflow(workflowId);
@@ -948,7 +1002,7 @@ namespace Redis.Workflow.Common
 
                 th.Gate.WaitOne();
 
-                Assert.AreEqual(1, db.ListLength("submitted"));
+                Assert.AreEqual(1, db.SortedSetLength("submitted"));
                 Assert.AreEqual(1, db.SetLength("running"));
 
                 wm.PauseWorkflow(workflowId);
@@ -977,7 +1031,7 @@ namespace Redis.Workflow.Common
                 // We've got no hook into the completion event as yet
                 Assert.AreEqual(1, db.SetLength("paused")); 
                 Assert.AreEqual(1, db.SetLength("paused:1"));
-                Assert.AreEqual(0, db.ListLength("submitted"));
+                Assert.AreEqual(0, db.SortedSetLength("submitted"));
                 Assert.AreEqual(0, db.SetLength("running"));
             }
 

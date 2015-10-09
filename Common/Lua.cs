@@ -22,11 +22,13 @@ namespace Redis.Workflow.Common
             + "  local name = value[\"Name\"]\r\n"
             + "  local payload = value[\"Payload\"]\r\n"
             + "  local taskType = value[\"Type\"]\r\n"
+            + "  local priority = value[\"Priority\"]\r\n"
             + "  local taskId = redis.call(\"hget\", \"workflow:\"..workflowId..\":tasklookup\", name)\r\n"
             + "  redis.call(\"hset\", \"task:\"..taskId, \"name\", name)\r\n"
             + "  redis.call(\"hset\", \"task:\"..taskId, \"workflow\", workflowId)\r\n"
             + "  redis.call(\"hset\", \"task:\"..taskId, \"payload\", payload)\r\n"
             + "  redis.call(\"hset\", \"task:\"..taskId, \"type\", taskType)\r\n"
+            + "  redis.call(\"hset\", \"task:\"..taskId, \"priority\", priority)\r\n"
             + "  local parentCount = 0\r\n"
             + "  for key2, parentName in next,value[\"Parents\"],nil do\r\n"
             + "    local parentTaskId = redis.call(\"hget\", \"workflow:\"..workflowId..\":tasklookup\", parentName)\r\n"
@@ -38,10 +40,10 @@ namespace Redis.Workflow.Common
             + "    redis.call(\"hset\", \"task:\" .. taskId, \"submitted\", @timestamp)\r\n"
             + "    redis.call(\"sadd\", \"submitted:\"..workflowId, taskId)\r\n"
             + "    if taskType ~= \"\" then\r\n"
-            + "      redis.call(\"lpush\", \"submitted:\"..taskType, taskId)\r\n"
+            + "      redis.call(\"zadd\", \"submitted:\"..taskType, priority, taskId)\r\n"
             + "      redis.call(\"publish\", \"submittedTask:\"..taskType, \"\")\r\n"
             + "    else\r\n"
-            + "      redis.call(\"lpush\", \"submitted\", taskId)\r\n"
+            + "      redis.call(\"zadd\", \"submitted\", priority, taskId)\r\n"
             + "      redis.call(\"publish\", \"submittedTask\", \"\")\r\n"
             + "    end\r\n"
             + "  end\r\n"
@@ -58,15 +60,6 @@ namespace Redis.Workflow.Common
             + "redis.call(\"sadd\", \"workflows\", workflowId)\r\n"
             + "redis.call(\"del\", \"workflow:\"..workflowId..\":tasklookup\")\r\n"
             + "return workflowId"
-            ;
-
-        private static readonly string _pushTaskScript =
-              "redis.call(\"hset\", \"task:\" .. @taskId, \"submitted\", @timestamp)\r\n"
-            + "redis.call(\"hset\", \"task:\" .. taskId, \"previousState\", \"none\")\r\n"
-            + "redis.call(\"lpush\", \"submitted\", @taskId)\r\n"
-            + "local workflowId = redis.call(\"hget\", \"task:\"..@taskId, \"workflow\")\r\n"
-            + "redis.call(\"sadd\", \"submitted:\"..workflowId, taskId)\r\n"
-            + "redis.call(\"publish\", \"submittedTask\", \"\")"
             ;
 
         private static readonly string _failTaskScript =
@@ -91,6 +84,7 @@ namespace Redis.Workflow.Common
 
         private static readonly string _completeTaskScript =
                   "local paused = ''\r\n"
+                + "print(\"Completing task \"..@taskId)\r\n"
                 + "local runningCount = redis.call(\"srem\", \"running\", @taskId)\r\n"
                 + "if runningCount == 0 then\r\n"
                 + "  local abandonedCount = redis.call(\"srem\", \"abandoned\", @taskId)\r\n"
@@ -131,11 +125,13 @@ namespace Redis.Workflow.Common
                 + "      redis.call(\"hset\", \"task:\" .. @taskId, \"previousState\", \"none\")\r\n"
                 + "      redis.call(\"sadd\", \"submitted:\"..workflow, child)\r\n"
                 + "      local taskType = redis.call(\"hget\", \"task:\"..child, \"type\")\r\n"
+                + "      local priority = redis.call(\"hget\", \"task:\"..child, \"priority\")\r\n"
                 + "      if taskType ~= \"\" then\r\n"
-                + "        redis.call(\"lpush\", \"submitted:\"..taskType, child)\r\n"
+                + "        print(\"Submit on completion: \"..@taskId..\" \"..child)\r\n"
+                + "        redis.call(\"zadd\", \"submitted:\"..taskType, priority, child)\r\n"
                 + "        redis.call(\"publish\", \"submittedTask:\"..taskType, \"\")\r\n"
                 + "      else\r\n"
-                + "        redis.call(\"lpush\", \"submitted\", child)\r\n"
+                + "        redis.call(\"zadd\", \"submitted\", priority, child)\r\n"
                 + "        redis.call(\"publish\", \"submittedTask\", \"\")\r\n"
                 + "      end\r\n"
                 + "    end\r\n"
@@ -168,7 +164,9 @@ namespace Redis.Workflow.Common
                 + "if @taskType ~= '' then\r\n"
                 + "typeSuffix = \":\"..@taskType\r\n"
                 + "end\r\n"
-                + "local task = redis.call(\"rpop\", \"submitted\"..typeSuffix)\r\n"
+                + "local tasks = redis.call(\"zrange\", \"submitted\"..typeSuffix, \"0\", \"100\")\r\n"
+                + "local task = tasks[1]\r\n"
+                + "redis.call(\"zrem\", \"submitted\"..typeSuffix, tasks[1])\r\n"
                 + "if task then\r\n"
                 + "redis.call(\"sadd\", \"running\", task)\r\n"
                 + "redis.call(\"hset\", \"task:\" .. task, \"running\", @timestamp)"
@@ -207,12 +205,13 @@ namespace Redis.Workflow.Common
                 + "return id"
                 ;
 
+        // TODO: this not working quite right -- need to check detail
         private static readonly string _cleanupWorkflowScript =
                   "local task = redis.call(\"rpop\", \"tasks:\"..@workflowId)\r\n"
                 + "while task do\r\n"
                 + "redis.call(\"srem\", \"tasks\", task)\r\n"
                 + "redis.call(\"del\", \"task:\"..task)\r\n"
-                + "redis.call(\"lrem\", \"submitted\", 1, task)\r\n"
+                + "redis.call(\"zrem\", \"submitted\", 1, task)\r\n"
                 + "redis.call(\"srem\", \"abandoned\", task)\r\n"
                 + "redis.call(\"smove\", \"running\", \"abandoned\", task)\r\n"
                 + "redis.call(\"srem\", \"complete\", task)\r\n"
@@ -241,11 +240,12 @@ namespace Redis.Workflow.Common
             + "  print(\"key \"..key..\" value \"..task)"
             + "  redis.call(\"hset\", \"task:\" .. task, \"submitted\", @timestamp)\r\n"
             + "  local taskType = redis.call(\"hget\", \"task:\"..task, \"type\")\r\n"
+            + "  local priority = redis.call(\"hget\", \"task:\"..task, \"priority\")\r\n"
             + "  if taskType == \"\" then\r\n"
-            + "    redis.call(\"lpush\", \"submitted\", task)\r\n"
+            + "    redis.call(\"zadd\", \"submitted\", priority, task)\r\n"
             + "    redis.call(\"publish\", \"submittedTask\", \"\")"
             + "  else\r\n"
-            + "    redis.call(\"lpush\", \"submitted:\"..taskType, task)\r\n"
+            + "    redis.call(\"zadd\", \"submitted:\"..taskType, priority, task)\r\n"
             + "    redis.call(\"publish\", \"submittedTask:\"..taskType, \"\")"
             + "  end\r\n"
             + "  local workflow = redis.call(\"hget\", \"task:\"..task, \"workflow\")\r\n"
@@ -296,10 +296,10 @@ namespace Redis.Workflow.Common
             + "for key, task in next,tasks,nil do\r\n"
             + "  local taskType = redis.call(\"hget\", \"task:\"..task, \"type\")\r\n"
             + "  if taskType ~= \"\" then\r\n"
-            + "    redis.call(\"lrem\", \"submitted:\"..taskType, 1, task)\r\n"
+            + "    redis.call(\"zrem\", \"submitted:\"..taskType, 1, task)\r\n"
             + "    redis.call(\"hset\", \"task:\" .. task, \"previousState\", \"submitted:\"..taskType)\r\n"
             + "  else\r\n"
-            + "    redis.call(\"lrem\", \"submitted\", 1, task)\r\n"
+            + "    redis.call(\"zrem\", \"submitted\", 1, task)\r\n"
             + "    redis.call(\"hset\", \"task:\" .. task, \"previousState\", \"submitted\")\r\n"
             + "  end\r\n"
             + "  redis.call(\"srem\", \"submitted:\"..@workflowId, task)\r\n"
@@ -352,7 +352,6 @@ namespace Redis.Workflow.Common
             var scripts = new Dictionary<string, string>
             {
                 { "pushWorkflow",                      _pushWorkflowScript },
-                { "pushTask",                          _pushTaskScript },
                 { "popTask",                           _popTaskScript },
                 { "completeTask",                      _completeTaskScript },
                 { "failTask",                          _failTaskScript },
@@ -435,13 +434,6 @@ namespace Redis.Workflow.Common
             var result = _scripts["pushWorkflow"].Evaluate(db, arguments);
 
             return (long?)result;
-        }
-
-        public void PushTask(IDatabase db, string task, string timestamp)
-        {
-            var arguments = new { taskId = task, timestamp = timestamp };
-
-            _scripts["pushTask"].Evaluate(db, arguments);
         }
 
         public void FailTask(IDatabase db, string task, string timestamp)

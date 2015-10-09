@@ -91,6 +91,7 @@ namespace Redis.Workflow.Common
 
         public string[] PopTask(IDatabase db, string timestamp, string responsible)
         {
+            // TODO: need bad pop task test
             return PopTask(db, "", timestamp, responsible);
         }
 
@@ -100,12 +101,6 @@ namespace Redis.Workflow.Common
                 throw new NotImplementedException();
             else
                 return _lua.PopTask(db, timestamp, responsible);
-        }
-
-
-        public void PushTask(IDatabase db, string task, string timestamp)
-        {
-            throw new NotImplementedException();
         }
 
         public long? PushWorkflow(IDatabase db, string workflowJson, string timestamp)

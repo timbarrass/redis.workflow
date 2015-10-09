@@ -13,5 +13,14 @@
         public string Workflow { get; set; }
 
         public string Type { get; set; }
+
+        public int Priority { get; set; }
+
+        public Task()
+        {
+            Type = "";
+
+            Priority = 1;
+        }
     }
 }
