@@ -84,7 +84,6 @@ namespace Redis.Workflow.Common
 
         private static readonly string _completeTaskScript =
                   "local paused = ''\r\n"
-                + "print(\"Completing task \"..@taskId)\r\n"
                 + "local runningCount = redis.call(\"srem\", \"running\", @taskId)\r\n"
                 + "if runningCount == 0 then\r\n"
                 + "  local abandonedCount = redis.call(\"srem\", \"abandoned\", @taskId)\r\n"
@@ -127,7 +126,6 @@ namespace Redis.Workflow.Common
                 + "      local taskType = redis.call(\"hget\", \"task:\"..child, \"type\")\r\n"
                 + "      local priority = redis.call(\"hget\", \"task:\"..child, \"priority\")\r\n"
                 + "      if taskType ~= \"\" then\r\n"
-                + "        print(\"Submit on completion: \"..@taskId..\" \"..child)\r\n"
                 + "        redis.call(\"zadd\", \"submitted:\"..taskType, priority, child)\r\n"
                 + "        redis.call(\"publish\", \"submittedTask:\"..taskType, \"\")\r\n"
                 + "      else\r\n"
@@ -237,7 +235,6 @@ namespace Redis.Workflow.Common
         private static readonly string _resetTasksForResponsibleComponentScript =
               "local tasks = redis.call(\"smembers\", \"responsible:\"..@responsible)\r\n"
             + "for key, task in next,tasks,nil do\r\n"
-            + "  print(\"key \"..key..\" value \"..task)"
             + "  redis.call(\"hset\", \"task:\" .. task, \"submitted\", @timestamp)\r\n"
             + "  local taskType = redis.call(\"hget\", \"task:\"..task, \"type\")\r\n"
             + "  local priority = redis.call(\"hget\", \"task:\"..task, \"priority\")\r\n"
@@ -292,7 +289,6 @@ namespace Redis.Workflow.Common
               // anything in submitted:workflow to paused:workflow
               // anything in running state to paused
               "local tasks = redis.call(\"smembers\", \"submitted:\"..@workflowId)\r\n"
-            + "print(\"pausing submitted tasks for \"..@workflowId)\r\n"
             + "for key, task in next,tasks,nil do\r\n"
             + "  local taskType = redis.call(\"hget\", \"task:\"..task, \"type\")\r\n"
             + "  if taskType ~= \"\" then\r\n"
@@ -308,7 +304,6 @@ namespace Redis.Workflow.Common
             + "  redis.call(\"hset\", \"task:\"..task, \"paused\", @timestamp)\r\n"
             + "end\r\n"
             + "local runningTasks = redis.call(\"smembers\", \"running:\"..@workflowId)\r\n"
-            + "print(\"pausing running tasks for \"..@workflowId)\r\n"
             + "for key, task in next,runningTasks,nil do\r\n"
             + "  redis.call(\"srem\", \"running\", 1, task)\r\n"
             + "  redis.call(\"srem\", \"running:\"..@workflowId, task)\r\n"
@@ -327,7 +322,6 @@ namespace Redis.Workflow.Common
             + "for key, task in next,pausedTasks,nil do\r\n"
             + "  local previousState = redis.call(\"hget\", \"task:\"..task, \"previousState\")\r\n"
             + "  if previousState:match(\"submitted\") then\r\n"
-            + "    print(\"submitting \"..task)\r\n"
             + "    redis.call(\"hset\", \"task:\"..task, \"submitted\", @timestamp)\r\n"
             + "    redis.call(\"hset\", \"task:\" .. task, \"previousState\", \"paused\")\r\n"
             + "    redis.call(\"lpush\", previousState, task)\r\n"
