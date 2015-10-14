@@ -91,8 +91,10 @@ namespace Redis.Workflow.Common
 
         public string[] PopTask(IDatabase db, string timestamp, string responsible)
         {
-            // TODO: need bad pop task test
-            return PopTask(db, "", timestamp, responsible);
+            if (_case == TestCase.PopTask)
+                throw new NotImplementedException();
+            else
+                return PopTask(db, "", timestamp, responsible);
         }
 
         public string[] PopTask(IDatabase db, string type, string timestamp, string responsible)
