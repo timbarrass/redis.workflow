@@ -135,7 +135,7 @@ There is not any way of explicitly abandoning a task currently. Instead, a workf
 ## Task and workflow priority
 Tasks can be prioritised by giving them a score between 0 and some arbitrary integer up to Int.MaxValue, with 0 being high priority.
 
-   tasks.Add(new Task { 
+    tasks.Add(new Task { 
                 Priority = 10,
                 Type = "",
                 Name = "TestNode3", 
