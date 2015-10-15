@@ -131,3 +131,26 @@ You can release a workflow using
 All tasks that were submitted before being paused will be returned to the submitted state. If any running tasks completed while paused then their dependent tasks will get moved to the submitted state.
 
 There is not any way of explicitly abandoning a task currently. Instead, a workflow could either be paused indefinitely, or just cleaned up.
+
+## Task and workflow priority
+Tasks can be prioritised by giving them a score between 0 and some arbitrary integer up to Int.MaxValue, with 0 being high priority.
+
+   tasks.Add(new Task { 
+                Priority = 10,
+                Type = "",
+                Name = "TestNode3", 
+                Payload = "Node3", 
+                Parents = new string[] { "TestNode2" }, 
+                Children = new string[] { }, 
+                Workflow = workflowName });
+                
+If you want to set priority at workflow level, simply set all tasks within the workflow with the same priority.
+
+You can configure WorkflowManager s to only fetch tasks to some minimum priority; this allows you to create instances that will only process higher priority tasks, if you wish. You might, for example, only want to process tasks down to priority 50
+
+    using(var wm = new WorkloadManagement(ConnectionMultiplexer.Connect("localhost"), th, wh, "sampleApp", 50))
+    {
+        ...
+    }
+    
+By default WorkflowManagers are instantiated with a lowest priority setting of 100.
