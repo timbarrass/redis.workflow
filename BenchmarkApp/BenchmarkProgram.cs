@@ -145,7 +145,7 @@ namespace Redis.Workflow.BenchmarkApp
             var queueSampler = new System.Timers.Timer() { Interval = 10000, AutoReset = true, Enabled = true };
             queueSampler.Elapsed += (s, e) =>
             {
-                var val = db.ListLength("submitted");
+                var val = db.SortedSetLength("submitted");
                 submittedQueueLength.Add(new Tuple<DateTime, string>(DateTime.Now, val.ToString()));
                 val = db.SetLength("running");
                 runningSetLength.Add(new Tuple<DateTime, string>(DateTime.Now, val.ToString()));
