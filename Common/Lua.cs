@@ -29,6 +29,7 @@ namespace Redis.Workflow.Common
             + "  redis.call(\"hset\", \"task:\"..taskId, \"payload\", payload)\r\n"
             + "  redis.call(\"hset\", \"task:\"..taskId, \"type\", taskType)\r\n"
             + "  redis.call(\"hset\", \"task:\"..taskId, \"priority\", priority)\r\n"
+            + "  redis.call(\"zadd\", \"priorities\", priority, priority)\r\n" // TODO: feels daft; at least it sorts on insert
             + "  local parentCount = 0\r\n"
             + "  for key2, parentName in next,value[\"Parents\"],nil do\r\n"
             + "    local parentTaskId = redis.call(\"hget\", \"workflow:\"..workflowId..\":tasklookup\", parentName)\r\n"
@@ -162,7 +163,7 @@ namespace Redis.Workflow.Common
                 + "if @taskType ~= '' then\r\n"
                 + "typeSuffix = \":\"..@taskType\r\n"
                 + "end\r\n"
-                + "local tasks = redis.call(\"zrange\", \"submitted\"..typeSuffix, \"0\", \"100\")\r\n"
+                + "local tasks = redis.call(\"zrange\", \"submitted\"..typeSuffix, \"0\", @maxPriority)\r\n"
                 + "local task = tasks[1]\r\n"
                 + "redis.call(\"zrem\", \"submitted\"..typeSuffix, tasks[1])\r\n"
                 + "if task then\r\n"
@@ -369,6 +370,11 @@ namespace Redis.Workflow.Common
             }
         }
 
+        public Lua(int lowestPriority = 100)
+        {
+            _lowestPriority = lowestPriority;
+        }
+
         public void ReleaseWorkflow(IDatabase db, string workflowId, string timestamp)
         {
             var arguments = new { workflowId = workflowId, timestamp = timestamp };
@@ -465,7 +471,7 @@ namespace Redis.Workflow.Common
 
         public string[] PopTask(IDatabase db, string type, string timestamp, string responsible)
         {
-            var arguments = new { timestamp = timestamp, responsible = responsible, taskType = type };
+            var arguments = new { timestamp = timestamp, responsible = responsible, taskType = type, maxPriority = _lowestPriority };
 
             var result = (string[])_scripts["popTask"].Evaluate(db, arguments);
 
@@ -512,5 +518,7 @@ namespace Redis.Workflow.Common
 
             _scripts["cleanupWorkflow"].Evaluate(db, arguments);
         }
+
+        private int _lowestPriority = 100;
     }
 }

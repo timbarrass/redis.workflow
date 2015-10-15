@@ -15,7 +15,7 @@ namespace Redis.Workflow.Common
         {
             _case = testCase;
 
-            _lua = new Lua();
+            _lua = new Lua(100);
         }
 
         public void CleanupWorkflow(IDatabase db, string workflow)

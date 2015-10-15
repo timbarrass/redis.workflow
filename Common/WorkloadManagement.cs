@@ -76,8 +76,23 @@ namespace Redis.Workflow.Common
             }
         }
 
-        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, EventHandler<Exception> exceptionHandler, IEnumerable<string> typesProcessed = null, Behaviours behaviours = Behaviours.All)
-                        : this(mux, taskHandler, workflowHandler, identifier, typesProcessed, new Lua(), exceptionHandler, behaviours)
+        /// <summary>
+        /// Instantiate a new workflow manager, able to submit workflows and process tasks.
+        /// </summary>
+        /// <param name="mux"></param>
+        /// <param name="taskHandler"></param>
+        /// <param name="workflowHandler"></param>
+        /// <param name="identifier"></param>
+        /// <param name="exceptionHandler"></param>
+        /// <param name="lowestPriority">
+        /// The lowest priority task this instance will consider. High priority is given a score of 0; lowest priority should be given 
+        /// a score > 0. Defaults to 100. Note that you should have at least one instance able to cover the whole priority range you
+        /// submit at.
+        /// </param>
+        /// <param name="typesProcessed"></param>
+        /// <param name="behaviours"></param>
+        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, EventHandler<Exception> exceptionHandler, int lowestPriority = 100, IEnumerable<string> typesProcessed = null, Behaviours behaviours = Behaviours.All)
+                        : this(mux, taskHandler, workflowHandler, identifier, typesProcessed, new Lua(lowestPriority), exceptionHandler, behaviours)
         {
             
         }
@@ -364,5 +379,7 @@ namespace Redis.Workflow.Common
         private readonly object _turnstile = new object();
 
         private readonly IEnumerable<string> _typesProcessed;
+
+        private readonly int _lowestPriority = 100;
     }
 }
