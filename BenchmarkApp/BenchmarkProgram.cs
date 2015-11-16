@@ -164,12 +164,12 @@ namespace Redis.Workflow.BenchmarkApp
 
         private static WorkflowManagement BuildWorkflowManagers(ConnectionMultiplexer mux, TaskHandler th, WorkflowHandler wh, EventHandler<Exception> eh)
         {
-            var wm = new WorkflowManagement(mux, th, wh, "sampleApp", eh);
+            var wm = new WorkflowManagement(mux, th, wh, new WorkflowManagementId("sampleApp"), eh);
 
             var extraProcessors = new List<WorkflowManagement>();
             for (int i = 0; i < 10; i++)
             {
-                extraProcessors.Add(new WorkflowManagement(mux, th, wh, "processor-" + i, eh));
+                extraProcessors.Add(new WorkflowManagement(mux, th, wh, new WorkflowManagementId("processor-" + i), eh));
             }
 
             return wm;
@@ -190,19 +190,22 @@ namespace Redis.Workflow.BenchmarkApp
             return mux;
         }
 
+        private static readonly TaskName[] EmptyTaskList = new TaskName[0];
+
+        private static readonly TaskType NoType = new TaskType("");
+
+        private static readonly TaskPriority SimplePriority = new TaskPriority(1);
+
         private static Common.Workflow CreateTestWorkflow()
         {
-            var workflowName = "TestWorkflow";
+            var workflow = new Common.Workflow(new WorkflowName("TestWorkflow"));
 
-            var tasks = new List<Task>();
-            tasks.Add(new Task { Name = "1", Payload = "payload", Parents = new string[] { }, Children = new string[] { "2" }, Workflow = workflowName });
+            workflow.AddTask(new TaskName("1"), new Payload("payload"), NoType, SimplePriority, EmptyTaskList, new [] { new TaskName("2") });
 
             for(int i = 2; i < 10; i++)
             {
-                tasks.Add(new Task { Type = "", Name = i.ToString(), Payload = "payload", Parents = new string[] { (i - 1).ToString() }, Children = new string[] { (i + 1).ToString() }, Workflow = workflowName });
+                workflow.AddTask(new TaskName(i.ToString()), new Payload("payload"), NoType, SimplePriority, new [] { new TaskName((i - 1).ToString()) }, new [] { new TaskName((i + 1).ToString()) });
             }
-
-            var workflow = new Common.Workflow { Name = workflowName, Tasks = tasks };
 
             return workflow;
         }

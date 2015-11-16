@@ -133,6 +133,12 @@ namespace Redis.Workflow.Common
     /// be up and running.
     public class BasicWorkflowTests 
     {
+        private static readonly TaskName[] EmptyTaskList = new TaskName[0];
+
+        private static readonly TaskType NoType = new TaskType("");
+
+        private static readonly TaskPriority SimplePriority = new TaskPriority(1);
+
         public BasicWorkflowTests()
         {
             _mux = ConnectionMultiplexer.Connect("localhost");
@@ -167,14 +173,10 @@ namespace Redis.Workflow.Common
 
                 EventHandler<Exception> eh = (s, e) => { events.Add(e.Message); exception.Set(); };
 
-                using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, lua, eh, Behaviours.Processor | Behaviours.Submitter))
+                using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, lua, eh, Behaviours.Processor | Behaviours.Submitter))
                 {
-                    var workflowName = "TestWorkflow";
-
-                    var tasks = new List<Task>();
-                    tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName }); // TODO what happens if we reference children that don't exist?
-
-                    var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                    var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                    workflow.AddTask(new TaskName("TestNode1"), new Payload("Node1"), new TaskType(""), new TaskPriority(1), new TaskName[0], new TaskName[0]);
 
                     wm.PushWorkflow(workflow);
 
@@ -214,18 +216,19 @@ namespace Redis.Workflow.Common
 
                 EventHandler<Exception> eh = (s, e) => { events.Add(e.Message); exception.Set(); };
 
-                using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, lua, eh, Behaviours.Processor | Behaviours.Submitter))
+                using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, lua, eh, Behaviours.Processor | Behaviours.Submitter))
                 {
-                    var workflowName = "TestWorkflow";
+                    var t1 = new TaskName("TestNode1");
+                    var t2 = new TaskName("TestNode2");
+                    var t3 = new TaskName("TestNode3");
+                    var t4 = new TaskName("TestNode4");
 
-                    var tasks = new List<Task>();
-                    tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                    tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4" }, Workflow = workflowName });
-                    tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                    tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-
-                    var workflow = new Workflow { Name = workflowName, Tasks = tasks };
-
+                    var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                    workflow.AddTask(t1, new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new [] { t2 });
+                    workflow.AddTask(t2, new Payload("Node2"), NoType, SimplePriority, new [] { t1 }, new [] { t3, t4 });
+                    workflow.AddTask(t3, new Payload("Node3"), NoType, SimplePriority, new [] { t2 }, EmptyTaskList);
+                    workflow.AddTask(t4, new Payload("Node4"), NoType, SimplePriority, new [] { t2 }, EmptyTaskList);
+                    
                     wm.PushWorkflow(workflow);
 
                     var waitResult = WaitHandle.WaitAny(new[] { exception, failed, complete }, 2000);
@@ -252,14 +255,10 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
-                var workflowName = "TestWorkflow";
-
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(new TaskName("TestNode1"), new Payload("Node1"), new TaskType(""), new TaskPriority(1), EmptyTaskList, new [] { new TaskName("TestNode2") });
 
                 wm.PushWorkflow(workflow);
 
@@ -288,15 +287,11 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
-                var workflowName = "TestWorkflow";
-
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Name = "TestNode1", Payload = "Node1", Parents = new string[] { "TestNode0" }, Children = new string[] { }, Workflow = workflowName });
-
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
-
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(new TaskName("TestNode1"), new Payload("Node1"), NoType, SimplePriority, new [] { new TaskName("SomeParent") }, EmptyTaskList);
+                
                 wm.PushWorkflow(workflow);
 
                 var result = WaitHandle.WaitAny(new[] { complete }, 2000);
@@ -328,17 +323,18 @@ namespace Redis.Workflow.Common
 
             EventHandler<Exception> eh = (s, e) => { events.Add(e.Message); exception.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", eh))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), eh))
             {
-                var workflowName = "TestWorkflow";
+                var t1 = new TaskName("TestNode1");
+                var t2 = new TaskName("TestNode2");
+                var t3 = new TaskName("TestNode3");
+                var t4 = new TaskName("TestNode4");
 
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(t1, new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new [] { t2 });
+                workflow.AddTask(t2, new Payload("Node2"), NoType, SimplePriority, new [] { t1 }, new [] { t3, t4 });
+                workflow.AddTask(t3, new Payload("Node3"), NoType, SimplePriority, new [] { t2 }, EmptyTaskList);
+                workflow.AddTask(t4, new Payload("Node4"), NoType, SimplePriority, new [] { t2 }, EmptyTaskList);
 
                 var workflowId = wm.PushWorkflow(workflow);
 
@@ -401,19 +397,22 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
-                var workflowName = "TestWorkflow";
+                var t1 = new TaskName("TestNode1");
+                var t2 = new TaskName("TestNode2");
+                var t3 = new TaskName("TestNode3");
+                var t4 = new TaskName("TestNode4");
+                var t5 = new TaskName("TestNode5");
+                var t6 = new TaskName("TestNode6");
 
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(t1, new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new [] { t2 });
+                workflow.AddTask(t2, new Payload("Node2"), NoType, SimplePriority, new [] { t1 }, new [] { t3, t4, t5, t6 });
+                workflow.AddTask(t3, new Payload("Node3"), NoType, SimplePriority, new [] { t2 }, EmptyTaskList);
+                workflow.AddTask(t4, new Payload("Node4"), NoType, SimplePriority, new [] { t2 }, EmptyTaskList);
+                workflow.AddTask(t5, new Payload("Node5"), NoType, SimplePriority, new [] { t2 }, EmptyTaskList);
+                workflow.AddTask(t6, new Payload("Node6"), NoType, SimplePriority, new [] { t2 }, EmptyTaskList);
 
                 wm.PushWorkflow(workflow);
 
@@ -443,20 +442,15 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
-                var workflowName = "TestWorkflow";
-
-                // 6 independent tasks in this workflow
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Priority = 3, Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Priority = 2, Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Priority = 1, Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Priority = 4, Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Priority = 6, Type = "", Name = "TestNode5", Payload = "Node5", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Priority = 5, Type = "", Name = "TestNode6", Payload = "Node6", Parents = new string[] { }, Children = new string[] { }, Workflow = workflowName });
-
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(new TaskName("TestNode1"), new Payload("Node1"), NoType, new TaskPriority(3), EmptyTaskList, EmptyTaskList);
+                workflow.AddTask(new TaskName("TestNode2"), new Payload("Node2"), NoType, new TaskPriority(2), EmptyTaskList, EmptyTaskList);
+                workflow.AddTask(new TaskName("TestNode3"), new Payload("Node3"), NoType, new TaskPriority(1), EmptyTaskList, EmptyTaskList);
+                workflow.AddTask(new TaskName("TestNode4"), new Payload("Node4"), NoType, new TaskPriority(4), EmptyTaskList, EmptyTaskList);
+                workflow.AddTask(new TaskName("TestNode5"), new Payload("Node5"), NoType, new TaskPriority(6), EmptyTaskList, EmptyTaskList);
+                workflow.AddTask(new TaskName("TestNode6"), new Payload("Node6"), NoType, new TaskPriority(5), EmptyTaskList, EmptyTaskList);
 
                 wm.PushWorkflow(workflow);
 
@@ -493,20 +487,26 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new[] { "testTaskType" }, new Lua()))
-            using (var wm2 = new WorkflowManagement(_mux, th, wh, "test2", new[] { "testTaskType2" }, new Lua()))
+            var type1 = new TaskType("testTaskType");
+            var type2 = new TaskType("testTaskType2");
+
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), new[] { type1 }, new Lua()))
+            using (var wm2 = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test2"), new[] { type2 }, new Lua()))
             {
-                var workflowName = "TestWorkflow";
-
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Type = "testTaskType", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "testTaskType", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "testTaskType2", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "testTaskType", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "testTaskType2", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "testTaskType", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                var t1 = new TaskName("TestNode1");
+                var t2 = new TaskName("TestNode2");
+                var t3 = new TaskName("TestNode3");
+                var t4 = new TaskName("TestNode4");
+                var t5 = new TaskName("TestNode5");
+                var t6 = new TaskName("TestNode6");
+                
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(t1, new Payload("Node1"), type1, SimplePriority, EmptyTaskList, new[] { t2 });
+                workflow.AddTask(t2, new Payload("Node2"), type1, SimplePriority, new[] { t1 }, new[] { t3, t4, t5, t6 });
+                workflow.AddTask(t3, new Payload("Node3"), type2, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t4, new Payload("Node4"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t5, new Payload("Node5"), type2, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t6, new Payload("Node6"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
 
                 wm.PushWorkflow(workflow);
 
@@ -535,19 +535,22 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
-                var workflowName = "TestWorkflow";
+                var t1 = new TaskName("TestNode1");
+                var t2 = new TaskName("TestNode2");
+                var t3 = new TaskName("TestNode3");
+                var t4 = new TaskName("TestNode4");
+                var t5 = new TaskName("TestNode5");
+                var t6 = new TaskName("TestNode6");
 
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(t1, new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new[] { t2 });
+                workflow.AddTask(t2, new Payload("Node2"), NoType, SimplePriority, new[] { t1 }, new[] { t3, t4, t5, t6 });
+                workflow.AddTask(t3, new Payload("Node3"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t4, new Payload("Node4"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t5, new Payload("Node5"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t6, new Payload("Node6"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
 
                 var workflowId = wm.PushWorkflow(workflow);
 
@@ -604,17 +607,18 @@ namespace Redis.Workflow.Common
             wh.WorkflowComplete += (s, w) => { complete.Set(); };
             wh.WorkflowFailed += (s, w) => { failed.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
-                var workflowName = "TestWorkflow";
+                var t1 = new TaskName("TestNode1");
+                var t2 = new TaskName("TestNode2");
+                var t3 = new TaskName("TestNode3");
+                var t4 = new TaskName("TestNode4");
 
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(t1, new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new[] { t2 });
+                workflow.AddTask(t2, new Payload("Node2"), NoType, SimplePriority, new[] { t1 }, new[] { t3, t4 });
+                workflow.AddTask(t3, new Payload("Node3"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t4, new Payload("Node4"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
 
                 wm.PushWorkflow(workflow);
 
@@ -642,19 +646,22 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
-                var workflowName = "TestWorkflow";
+                var t1 = new TaskName("TestNode1");
+                var t2 = new TaskName("TestNode2");
+                var t3 = new TaskName("TestNode3");
+                var t4 = new TaskName("TestNode4");
+                var t5 = new TaskName("TestNode5");
+                var t6 = new TaskName("TestNode6");
 
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(t1, new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new[] { t2 });
+                workflow.AddTask(t2, new Payload("Node2"), NoType, SimplePriority, new[] { t1 }, new[] { t3, t4, t5, t6 });
+                workflow.AddTask(t3, new Payload("Node3"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t4, new Payload("Node4"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t5, new Payload("Node5"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t6, new Payload("Node6"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
 
                 wm.PushWorkflow(workflow);
 
@@ -683,19 +690,22 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
-                var workflowName = "TestWorkflow";
+                var t1 = new TaskName("TestNode1");
+                var t2 = new TaskName("TestNode2");
+                var t3 = new TaskName("TestNode3");
+                var t4 = new TaskName("TestNode4");
+                var t5 = new TaskName("TestNode5");
+                var t6 = new TaskName("TestNode6");
 
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-                tasks.Add(new Task { Type = "", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(t1, new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new[] { t2 });
+                workflow.AddTask(t2, new Payload("Node2"), NoType, SimplePriority, new[] { t1 }, new[] { t3, t4, t5, t6 });
+                workflow.AddTask(t3, new Payload("Node3"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t4, new Payload("Node4"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t5, new Payload("Node5"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+                workflow.AddTask(t6, new Payload("Node6"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
 
                 var id = wm.PushWorkflowAsync(workflow);
 
@@ -721,14 +731,10 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
-                var workflowName = "TestWorkflow";
-
-                var tasks = new List<Task>();
-                tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-
-                var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+                var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+                workflow.AddTask(new TaskName("TestNode1"), new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new [] { new TaskName("TestNode2") });
 
                 wm.PushWorkflow(workflow);
 
@@ -762,20 +768,24 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
+            var t1 = new TaskName("TestNode1");
+            var t2 = new TaskName("TestNode2");
+            var t3 = new TaskName("TestNode3");
+            var t4 = new TaskName("TestNode4");
+            var t5 = new TaskName("TestNode5");
+            var t6 = new TaskName("TestNode6");
 
-            var workflowName = "TestWorkflow";
+            var type1 = new TaskType("testTaskType");
 
-            var tasks = new List<Task>();
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+            workflow.AddTask(t1, new Payload("Node1"), type1, SimplePriority, EmptyTaskList, new[] { t2 });
+            workflow.AddTask(t2, new Payload("Node2"), type1, SimplePriority, new[] { t1 }, new[] { t3, t4, t5, t6 });
+            workflow.AddTask(t3, new Payload("Node3"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t4, new Payload("Node4"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t5, new Payload("Node5"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t6, new Payload("Node6"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
 
-            var workflow = new Workflow { Name = workflowName, Tasks = tasks };
-
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new[] { "testTaskType" }, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), new[] { type1 }, new Lua()))
             {
                 wm.PushWorkflow(workflow);
 
@@ -786,7 +796,7 @@ namespace Redis.Workflow.Common
             }
 
             // create a new wm to simulate a restart of a component
-            using (var wm2 = new WorkflowManagement(_mux, th2, wh, "test", new[] { "testTaskType" }, new Lua()))
+            using (var wm2 = new WorkflowManagement(_mux, th2, wh, new WorkflowManagementId("test"), new[] { type1 }, new Lua()))
             {
                 Assert.AreEqual(1, db.SortedSetLength("submitted:testTaskType"));
 
@@ -816,20 +826,22 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
+            var t1 = new TaskName("TestNode1");
+            var t2 = new TaskName("TestNode2");
+            var t3 = new TaskName("TestNode3");
+            var t4 = new TaskName("TestNode4");
+            var t5 = new TaskName("TestNode5");
+            var t6 = new TaskName("TestNode6");
 
-            var workflowName = "TestWorkflow";
+            var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+            workflow.AddTask(t1, new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new[] { t2 });
+            workflow.AddTask(t2, new Payload("Node2"), NoType, SimplePriority, new[] { t1 }, new[] { t3, t4, t5, t6 });
+            workflow.AddTask(t3, new Payload("Node3"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t4, new Payload("Node4"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t5, new Payload("Node5"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t6, new Payload("Node6"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
 
-            var tasks = new List<Task>();
-            tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-
-            var workflow = new Workflow { Name = workflowName, Tasks = tasks };
-
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
                 wm.PushWorkflow(workflow);
 
@@ -840,7 +852,7 @@ namespace Redis.Workflow.Common
             }
 
             // create a new wm to simulate a restart of a component
-            using (var wm2 = new WorkflowManagement(_mux, th2, wh, "test", null, new Lua()))
+            using (var wm2 = new WorkflowManagement(_mux, th2, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
                 Assert.AreEqual(1, db.SortedSetLength("submitted"));
 
@@ -869,19 +881,24 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            var workflowName = "TestWorkflow";
+            var t1 = new TaskName("TestNode1");
+            var t2 = new TaskName("TestNode2");
+            var t3 = new TaskName("TestNode3");
+            var t4 = new TaskName("TestNode4");
+            var t5 = new TaskName("TestNode5");
+            var t6 = new TaskName("TestNode6");
 
-            var tasks = new List<Task>();
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode2", Payload = "Node2", Parents = new string[] { }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            var type1 = new TaskType("testTaskType");
 
-            var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+            var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+            workflow.AddTask(t1, new Payload("Node1"), type1, SimplePriority, EmptyTaskList, new[] { t2 });
+            workflow.AddTask(t2, new Payload("Node2"), type1, SimplePriority, EmptyTaskList, new[] { t3, t4, t5, t6 });
+            workflow.AddTask(t3, new Payload("Node3"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t4, new Payload("Node4"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t5, new Payload("Node5"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t6, new Payload("Node6"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new[] { "testTaskType" }, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), new[] { type1 }, new Lua()))
             {
                 var workflowId = wm.PushWorkflow(workflow);
 
@@ -939,19 +956,24 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            var workflowName = "TestWorkflow";
+            var t1 = new TaskName("TestNode1");
+            var t2 = new TaskName("TestNode2");
+            var t3 = new TaskName("TestNode3");
+            var t4 = new TaskName("TestNode4");
+            var t5 = new TaskName("TestNode5");
+            var t6 = new TaskName("TestNode6");
 
-            var tasks = new List<Task>();
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode2", Payload = "Node2", Parents = new string[] { }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "testTaskType", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            var type1 = new TaskType("testTaskType");
 
-            var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+            var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+            workflow.AddTask(t1, new Payload("Node1"), type1, SimplePriority, EmptyTaskList, new[] { t2 });
+            workflow.AddTask(t2, new Payload("Node2"), type1, SimplePriority, EmptyTaskList, new[] { t3, t4, t5, t6 });
+            workflow.AddTask(t3, new Payload("Node3"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t4, new Payload("Node4"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t5, new Payload("Node5"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t6, new Payload("Node6"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", new[] { "testTaskType" }, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), new[] { type1 }, new Lua()))
             {
                 var workflowId = wm.PushWorkflow(workflow);
 
@@ -984,24 +1006,30 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            var workflowName = "TestWorkflow";
+            var t1 = new TaskName("TestNode1");
+            var t2 = new TaskName("TestNode2");
+            var t3 = new TaskName("TestNode3");
+            var t4 = new TaskName("TestNode4");
+            var t5 = new TaskName("TestNode5");
+            var t6 = new TaskName("TestNode6");
 
-            var tasks = new List<Task>();
-            tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            var type1 = new TaskType("testTaskType");
 
-            var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+            var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+            workflow.AddTask(t1, new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new[] { t2 });
+            workflow.AddTask(t2, new Payload("Node2"), NoType, SimplePriority, EmptyTaskList, new[] { t3, t4, t5, t6 });
+            workflow.AddTask(t3, new Payload("Node3"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t4, new Payload("Node4"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t5, new Payload("Node5"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t6, new Payload("Node6"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
                 var workflowId = wm.PushWorkflow(workflow);
 
-                th.Gate.WaitOne();
+                var waitResult = th.Gate.WaitOne(/*2000*/);
 
+                Assert.IsTrue(waitResult);
                 Assert.AreEqual(1, db.SortedSetLength("submitted"));
                 Assert.AreEqual(1, db.SetLength("running"));
 
@@ -1054,19 +1082,24 @@ namespace Redis.Workflow.Common
             var wh = new WorkflowHandler();
             wh.WorkflowComplete += (s, w) => { events.Add("complete"); complete.Set(); };
 
-            var workflowName = "TestWorkflow";
+            var t1 = new TaskName("TestNode1");
+            var t2 = new TaskName("TestNode2");
+            var t3 = new TaskName("TestNode3");
+            var t4 = new TaskName("TestNode4");
+            var t5 = new TaskName("TestNode5");
+            var t6 = new TaskName("TestNode6");
 
-            var tasks = new List<Task>();
-            tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { }, Children = new string[] { "TestNode3", "TestNode4", "TestNode5", "TestNode6" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode5", Payload = "Node5", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode6", Payload = "Node6", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            var type1 = new TaskType("testTaskType");
 
-            var workflow = new Workflow { Name = workflowName, Tasks = tasks };
+            var workflow = new Workflow(new WorkflowName("TestWorkflow"));
+            workflow.AddTask(t1, new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new[] { t2 });
+            workflow.AddTask(t2, new Payload("Node2"), NoType, SimplePriority, EmptyTaskList, new[] { t3, t4, t5, t6 });
+            workflow.AddTask(t3, new Payload("Node3"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t4, new Payload("Node4"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t5, new Payload("Node5"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t6, new Payload("Node6"), NoType, SimplePriority, new[] { t2 }, EmptyTaskList);
 
-            using (var wm = new WorkflowManagement(_mux, th, wh, "test", null, new Lua()))
+            using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
                 var workflowId = wm.PushWorkflow(workflow);
 

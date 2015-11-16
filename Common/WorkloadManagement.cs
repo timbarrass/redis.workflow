@@ -15,7 +15,7 @@ namespace Redis.Workflow.Common
             _sub.UnsubscribeAll();
         }
 
-        internal WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, IEnumerable<string> typesProcessed, ILua lua, EventHandler<Exception> exceptionHandler = null, Behaviours behaviours = Behaviours.All)
+        internal WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, WorkflowManagementId identifier, IEnumerable<TaskType> typesProcessed, ILua lua, EventHandler<Exception> exceptionHandler = null, Behaviours behaviours = Behaviours.All)
         {
             _taskHandler = taskHandler;
 
@@ -41,7 +41,7 @@ namespace Redis.Workflow.Common
             }
             else
             {
-                foreach(var t in _typesProcessed)
+                foreach(var t in _typesProcessed.Select(ty => ty.ToString()))
                 {
                     _sub.Subscribe("submittedTask:" + t, (c, v) =>
                     {
@@ -91,7 +91,7 @@ namespace Redis.Workflow.Common
         /// </param>
         /// <param name="typesProcessed"></param>
         /// <param name="behaviours"></param>
-        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, string identifier, EventHandler<Exception> exceptionHandler, int lowestPriority = 100, IEnumerable<string> typesProcessed = null, Behaviours behaviours = Behaviours.All)
+        public WorkflowManagement(ConnectionMultiplexer mux, ITaskHandler taskHandler, WorkflowHandler workflowHandler, WorkflowManagementId identifier, EventHandler<Exception> exceptionHandler, int lowestPriority = 100, IEnumerable<TaskType> typesProcessed = null, Behaviours behaviours = Behaviours.All)
                         : this(mux, taskHandler, workflowHandler, identifier, typesProcessed, new Lua(lowestPriority), exceptionHandler, behaviours)
         {
             
@@ -194,7 +194,7 @@ namespace Redis.Workflow.Common
 
         private string Identifier
         {
-            get { return _identifier; }
+            get { return _identifier.ToString(); }
         }
 
         private string ProcessNextTask(string type)
@@ -313,7 +313,7 @@ namespace Redis.Workflow.Common
             var rootParentCount = 0;
             foreach(var task in workflow.Tasks)
             {
-                if(task.Parents.Length == 0)
+                if(task.Parents.Count() == 0)
                 {
                     rootParentCount++;
                 }
@@ -374,11 +374,11 @@ namespace Redis.Workflow.Common
 
         private readonly ILua _lua;
 
-        private readonly string _identifier;
+        private readonly WorkflowManagementId _identifier;
 
         private readonly object _turnstile = new object();
 
-        private readonly IEnumerable<string> _typesProcessed;
+        private readonly IEnumerable<TaskType> _typesProcessed;
 
         private readonly int _lowestPriority = 100;
     }

@@ -1,26 +1,42 @@
-﻿namespace Redis.Workflow.Common
+﻿using System.Collections.Generic;
+using System.Linq;
+
+namespace Redis.Workflow.Common
 {
     public class Task
     {
-        public string Name { get; set; }
+        public TaskName Name { get; private set; }
 
-        public string[] Parents { get; set; }
+        public IEnumerable<TaskName> Parents { get  { return _parents; } }
 
-        public string[] Children { get; set; }
+        public IEnumerable<TaskName> Children { get { return _children; } }
 
-        public string Payload { get; set; }
+        public Payload Payload { get; private set; }
 
-        public string Workflow { get; set; }
+        public WorkflowName Workflow { get; private set; }
 
-        public string Type { get; set; }
+        public TaskType Type { get; private set; }
 
-        public int Priority { get; set; }
+        public TaskPriority Priority { get; private set; }
 
-        public Task()
+        internal Task(WorkflowName workflowId, TaskName name, IEnumerable<TaskName> parents, IEnumerable<TaskName> children, Payload payload, TaskType type, TaskPriority priority)
         {
-            Type = "";
+            Workflow = workflowId;
+            Name = name;
+            Payload = payload;
+            Type = type;
+            Priority = priority;
 
-            Priority = 1;
+            _parents = parents.ToArray();
+
+            _children = children.ToArray();
         }
+
+        private Task()
+        { }
+
+        private readonly TaskName[] _parents;
+
+        private readonly TaskName[] _children;
     }
 }

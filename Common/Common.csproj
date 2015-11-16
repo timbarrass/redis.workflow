@@ -17,7 +17,7 @@
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
     <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <DefineConstants>TRACE;DEBUG</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
@@ -54,7 +54,11 @@
     <Compile Include="ILua.cs" />
     <Compile Include="IResultHandler.cs" />
     <Compile Include="ITaskHandler.cs" />
+    <Compile Include="Payload.cs" />
     <Compile Include="TaskDetails.cs" />
+    <Compile Include="TaskName.cs" />
+    <Compile Include="TaskPriority.cs" />
+    <Compile Include="TaskType.cs" />
     <Compile Include="TestCase.cs" />
     <Compile Include="WorkflowDetails.cs" />
     <Compile Include="WorkflowHandler.cs" />
@@ -64,6 +68,8 @@
     <Compile Include="SImpleResultHandler.cs" />
     <Compile Include="Task.cs" />
     <Compile Include="Workflow.cs" />
+    <Compile Include="WorkflowManagementId.cs" />
+    <Compile Include="WorkflowName.cs" />
     <Compile Include="WorkloadManagement.cs" />
   </ItemGroup>
   <ItemGroup>

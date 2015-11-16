@@ -1,6 +1,5 @@
 ﻿using Redis.Workflow.Common;
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using StackExchange.Redis;
 
@@ -20,15 +19,22 @@ namespace Redis.Workflow.ExampleApp
             // Should you want to decompose to running single tasks you can just create a workflow containing nodes with no parents or
             // children. The system works out where to start by identifying nodes with no parents, and assuming they're immediately
             // runnable. The hosting workflow then gives you a handle by which you can treat the individual tasks as a related set.
-            var workflowName = "TestWorkflow";
+            var t1 = new TaskName("TestNode1");
+            var t2 = new TaskName("TestNode2");
+            var t3 = new TaskName("TestNode3");
+            var t4 = new TaskName("TestNode4");
+            var t5 = new TaskName("TestNode5");
+            var t6 = new TaskName("TestNode6");
 
-            var tasks = new List<Task>();
-            tasks.Add(new Task { Type = "", Name = "TestNode1", Payload = "Node1", Parents = new string[] { }, Children = new string[] { "TestNode2" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode2", Payload = "Node2", Parents = new string[] { "TestNode1" }, Children = new string[] { "TestNode3", "TestNode4" }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode3", Payload = "Node3", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
-            tasks.Add(new Task { Type = "", Name = "TestNode4", Payload = "Node4", Parents = new string[] { "TestNode2" }, Children = new string[] { }, Workflow = workflowName });
+            var type1 = new TaskType("testTaskType");
 
-            var workflow = new Common.Workflow { Name = workflowName, Tasks = tasks };
+            var workflow = new Common.Workflow(new WorkflowName("TestWorkflow"));
+            workflow.AddTask(t1, new Payload("Node1"), type1, SimplePriority, EmptyTaskList, new[] { t2 });
+            workflow.AddTask(t2, new Payload("Node2"), type1, SimplePriority, EmptyTaskList, new[] { t3, t4, t5, t6 });
+            workflow.AddTask(t3, new Payload("Node3"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t4, new Payload("Node4"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t5, new Payload("Node5"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t6, new Payload("Node6"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
 
             // A client will start acting on tasks immediately. May not want that to
             // be behaviour -- so might want to have an independent submit-only client. TaskHandler only needed for
@@ -43,7 +49,7 @@ namespace Redis.Workflow.ExampleApp
 
             EventHandler<Exception> eh = (s, e) => { };
 
-            var wm = new WorkflowManagement(ConnectionMultiplexer.Connect("localhost"), th, wh, "sampleApp", eh);
+            var wm = new WorkflowManagement(ConnectionMultiplexer.Connect("localhost"), th, wh, new WorkflowManagementId("sampleApp"), eh);
 
             wm.ClearBacklog();
 
@@ -58,5 +64,11 @@ namespace Redis.Workflow.ExampleApp
 
             Console.ReadLine();
         }
+
+        private static readonly TaskName[] EmptyTaskList = new TaskName[0];
+
+        private static readonly TaskType NoType = new TaskType("");
+
+        private static readonly TaskPriority SimplePriority = new TaskPriority(1);
     }
 }
