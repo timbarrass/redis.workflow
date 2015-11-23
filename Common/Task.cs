@@ -3,7 +3,7 @@ using System.Linq;
 
 namespace Redis.Workflow.Common
 {
-    public class Task
+    internal class Task
     {
         public TaskName Name { get; private set; }
 

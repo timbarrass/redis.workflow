@@ -1,8 +1,6 @@
 ﻿using Newtonsoft.Json;
 using System.Collections.Generic;
 using System;
-using System.IO;
-using System.Text;
 using System.Linq;
 
 namespace Redis.Workflow.Common
@@ -16,22 +14,68 @@ namespace Redis.Workflow.Common
 
         public WorkflowName Name { get; private set; }
 
-        public IEnumerable<Task> Tasks
+        internal IEnumerable<Task> Tasks
         {
             get { return _tasks; }
         }
 
         public void AddTask(TaskName name, Payload payload, TaskType type, TaskPriority priority, IEnumerable<TaskName> parents, IEnumerable<TaskName> children)
         {
+            if (!_defined.Add(name))
+            {
+                throw new WorkflowException(string.Format("Task '{0}' has already been declared.", name));
+            }
+
+            foreach (var parent in parents) _parents.Add(parent);
+
+            foreach (var child in children) _children.Add(child);
+
             var task = new Task(Name, name, parents, children, payload, type, priority);
 
             _tasks.Add(task);
         }
 
-        public string ToJson()
+        internal void VerifyInternalConsistency()
+        {
+            var undeclaredChildren = _children.Except(_defined).Select(t => t.ToString()).ToArray();
+
+            if(undeclaredChildren.Length > 0)
+            {
+                throw new WorkflowException(string.Format("Some tasks defined undeclared tasks as their children. Undeclared child(ren): '{0}'", string.Join(",", undeclaredChildren)));
+            }
+
+            var undeclaredParents = _children.Except(_defined).Select(t => t.ToString()).ToArray();
+
+            if (undeclaredParents.Length > 0)
+            {
+                throw new WorkflowException(string.Format("Some tasks defined undeclared tasks as their parents. Undeclared parent(s): '{0}'", string.Join(",", undeclaredParents)));
+            }
+
+            var rootParentCount = 0;
+            foreach (var task in Tasks)
+            {
+                if (task.Parents.Count() == 0)
+                {
+                    rootParentCount++;
+                }
+            }
+
+            if (rootParentCount == 0)
+            {
+                throw new WorkflowException("A workflow must have at least one task with no parents.");
+            }
+        }
+
+        internal string ToJson()
         {
             return JsonConvert.SerializeObject(this, new TaskConverter(), new WorkflowConverter());
         }
+
+        private readonly HashSet<TaskName> _defined = new HashSet<TaskName>();
+
+        private readonly HashSet<TaskName> _parents = new HashSet<TaskName>();
+
+        private readonly HashSet<TaskName> _children = new HashSet<TaskName>();
 
         private readonly HashSet<Task> _tasks = new HashSet<Task>();
     }

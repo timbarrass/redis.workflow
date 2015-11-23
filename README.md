@@ -9,7 +9,7 @@ A fundamental design principle of redis.workflow is that either tasks, or the wo
 
 Early benchmarking in a low spec environment show that redis.workflow can process 0.9M no-op tasks across 100k workflows in about 3 minutes without improvements. In the same simple tests it reached a task churn of 5k tasks per second; it pushed workflows at a rate of around several hundred per second.
 
-Discussion of some design principles, and tests, can be found at http://timbar.blogspot.com .
+Discussion of some design principles, and tests, can be found at http//timbarrass.co.uk/posts .
 
 ## Getting started with a sample client application
 This is a simple example application that configures a workflow containing 4 tasks, submits and handles the task turnover. You'll need an instance of Redis running on localhost.
@@ -30,39 +30,22 @@ This is a simple example application that configures a workflow containing 4 tas
             // where to start by identifying nodes with no parents, and assuming they're 
             // immediately runnable. The hosting workflow then gives you a handle by which 
             // you can treat the individual tasks as a related set.
-            var workflowName = "TestWorkflow";
+            var t1 = new TaskName("TestNode1");
+            var t2 = new TaskName("TestNode2");
+            var t3 = new TaskName("TestNode3");
+            var t4 = new TaskName("TestNode4");
+            var t5 = new TaskName("TestNode5");
+            var t6 = new TaskName("TestNode6");
 
-            var tasks = new List<Task>();
-            tasks.Add(new Task { 
-                Type = "",
-                Name = "TestNode1", 
-                Payload = "Node1", 
-                Parents = new string[] { }, 
-                Children = new string[] { "TestNode2" }, 
-                Workflow = workflowName });
-            tasks.Add(new Task { 
-                Type = "",
-                Name = "TestNode2", 
-                Payload = "Node2", 
-                Parents = new string[] { "TestNode1" }, 
-                Children = new string[] { "TestNode3", "TestNode4" }, 
-                Workflow = workflowName });
-            tasks.Add(new Task { 
-                Type = "",
-                Name = "TestNode3", 
-                Payload = "Node3", 
-                Parents = new string[] { "TestNode2" }, 
-                Children = new string[] { }, 
-                Workflow = workflowName });
-            tasks.Add(new Task { 
-                Type = "",
-                Name = "TestNode4", 
-                Payload = "Node4", 
-                Parents = new string[] { "TestNode2" }, 
-                Children = new string[] { }, 
-                Workflow = workflowName });
+            var type1 = new TaskType("testTaskType");
 
-            var workflow = new Common.Workflow { Name = workflowName, Tasks = tasks };
+            var workflow = new Common.Workflow(new WorkflowName("TestWorkflow"));
+            workflow.AddTask(t1, new Payload("Node1"), type1, SimplePriority, EmptyTaskList, new[] { t2 });
+            workflow.AddTask(t2, new Payload("Node2"), type1, SimplePriority, EmptyTaskList, new[] { t3, t4, t5, t6 });
+            workflow.AddTask(t3, new Payload("Node3"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t4, new Payload("Node4"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t5, new Payload("Node5"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
+            workflow.AddTask(t6, new Payload("Node6"), type1, SimplePriority, new[] { t2 }, EmptyTaskList);
 
             var th = new TaskHandler();
             var wh = new WorkflowHandler();
@@ -91,6 +74,13 @@ This is a simple example application that configures a workflow containing 4 tas
         }
     }
 	
+    private static readonly TaskName[] EmptyTaskList = new TaskName[0];
+
+    private static readonly TaskType NoType = new TaskType("");
+
+    private static readonly TaskPriority SimplePriority = new TaskPriority(1);
+
+	
     // An ITaskHandler is the point at which control passes back to the client, giving 
     // them a chance to act on the task's payload. It needs to call resultHandler.OnSuccess()
     // or OnFail() as is appropriate. Here, it's a simple no-op that keeps the workflow
@@ -110,6 +100,13 @@ You can scale out by spinning up multiple instances of WorkfloadManagement, each
     mux.PreserveAsyncOrder = false;
 
 on the multiplexer you create. (I'm intending to wrap this in a builder method that gives you a scaling/non-scaling but trivially safe WorkloadManagment instance choice).
+
+## Workflow consistency
+It's possible to misconfigure tasks because you're asked to explicitly declare parents and children of given tasks as a collection of task names. By default when you call `PushWorkflow` an internal consistency check will be run that will determine whether there are any root tasks defined that can be run immediately, and whether there are any parent or child task lists that refer to undeclared children. A `WorkflowException` will be thrown if these checks fail.
+
+If you want to disable this consistency checking you can pass `false` as the second parameter to `Workflow.PushWorkflow`:
+
+    wm.PushWorkflow(someWorkflow, false);
 
 ## Pausing and releasing, and abandonment
 You can pause a workflow using

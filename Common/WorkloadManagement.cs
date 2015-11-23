@@ -306,23 +306,11 @@ namespace Redis.Workflow.Common
         /// immediately.
         /// </summary>
         /// <param name="workflow"></param>
-        /// <param name="tasks"></param>
+        /// <param name="checkConsistency">Optionally checks the internal consistency of the workflow</param>
         /// <returns>The handle used to identify this workflow instance</returns>
-        public long? PushWorkflow(Workflow workflow)
+        public long? PushWorkflow(Workflow workflow, bool checkConsistency = true)
         {
-            var rootParentCount = 0;
-            foreach(var task in workflow.Tasks)
-            {
-                if(task.Parents.Count() == 0)
-                {
-                    rootParentCount++;
-                }
-            }
-
-            if(rootParentCount == 0)
-            {
-                throw new ArgumentException("A workflow must have at least one task with no parents.", "workflow");
-            }
+            if (checkConsistency) workflow.VerifyInternalConsistency();
 
             var json = workflow.ToJson();
 

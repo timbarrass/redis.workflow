@@ -61,6 +61,7 @@
     <Compile Include="TaskType.cs" />
     <Compile Include="TestCase.cs" />
     <Compile Include="WorkflowDetails.cs" />
+    <Compile Include="WorkflowException.cs" />
     <Compile Include="WorkflowHandler.cs" />
     <Compile Include="Lua.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

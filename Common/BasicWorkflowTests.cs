@@ -238,7 +238,7 @@ namespace Redis.Workflow.Common
             }
         }
 
-        [TestMethod]
+        [TestMethod, ExpectedException(typeof(WorkflowException))]
         public void HandlesDanglingChildReferences()
         {
             var db = _mux.GetDatabase();
@@ -270,7 +270,7 @@ namespace Redis.Workflow.Common
             db.ScriptEvaluate("redis.call(\"flushdb\")");
         }
 
-        [TestMethod, ExpectedException(typeof(System.ArgumentException))]
+        [TestMethod, ExpectedException(typeof(WorkflowException))]
         public void ThrowsIfAWorkflowHasNoRootParents()
         {
             var db = _mux.GetDatabase();
@@ -734,7 +734,7 @@ namespace Redis.Workflow.Common
             using (var wm = new WorkflowManagement(_mux, th, wh, new WorkflowManagementId("test"), null, new Lua()))
             {
                 var workflow = new Workflow(new WorkflowName("TestWorkflow"));
-                workflow.AddTask(new TaskName("TestNode1"), new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, new [] { new TaskName("TestNode2") });
+                workflow.AddTask(new TaskName("TestNode1"), new Payload("Node1"), NoType, SimplePriority, EmptyTaskList, EmptyTaskList);
 
                 wm.PushWorkflow(workflow);
 
